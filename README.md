@@ -18,6 +18,7 @@ Foundation stage. **Nothing has been run on a physical device.** Verified state 
 | `authentication` (Keystore EC P-256 identity, signing) | Implemented. Instrumentation tests pass in CI on API 29 and 34 **emulators** (not physical devices) |
 | `runtime` (Room, foreground service `specialUse`, DI) | Implemented. Room/policy/dispatch tests pass in CI on emulators; **service lifecycle (screen-off, locked, Doze, OEM) is untested** |
 | `app` (Compose status screen) | Compiles, lints and assembles in CI. UI not exercised by any automated test |
+| Release signing + `release.yml` + store listing | Configured; **untested** until signing secrets exist and a tag is pushed. See `docs/distribution.md` |
 | Relay, identity/authorization, MCP gateway, dashboard, SDKs | Not started |
 
 Phase 1 limitations: no relay connection, no remote command entry (commands run only via the in-app self-test),
@@ -41,3 +42,4 @@ cd android
 - [Message envelope](docs/protocol/envelope.md)
 - [Relay schema draft](docs/relay-schema-draft.md)
 - [Physical-device checklist](docs/testing/physical-device-checklist.md)
+- [Distribution via the private app store](docs/distribution.md)

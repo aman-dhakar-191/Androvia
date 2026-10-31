@@ -16,14 +16,29 @@ android {
         applicationId = "dev.androvia.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI release passes these from the git tag (v1.2.3 -> 1.2.3) and the run number.
+        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("versionName") as String?) ?: "0.1.0"
+    }
+
+    signingConfigs {
+        // Set by the Release workflow from repository secrets; never committed. Every release must be signed
+        // with the same key or Android refuses to install it as an update.
+        System.getenv("KEYSTORE_FILE")?.let { keystore ->
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signing material is never committed. A release signing config is added in Phase 7.
+            // Unsigned when no keystore is configured (local and PR builds); signed in the Release workflow.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

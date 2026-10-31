@@ -1,0 +1,72 @@
+name: Release
+
+# Push a tag like v0.1.0 to build a signed APK and publish it as a GitHub release.
+# The private app store reads the latest release's first .apk and compares the tag with versionName.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      STORE_DISPATCH_TOKEN: ${{ secrets.STORE_DISPATCH_TOKEN }}
+    steps:
+      - name: Check tag format
+        run: |
+          if ! [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag must look like v1.2.3 (got $GITHUB_REF_NAME)"; exit 1
+          fi
+
+      - name: Require signing key
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Add the KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD secrets first. See docs/distribution.md."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon :core:test :capabilities:test
+
+      - name: Build signed APK
+        working-directory: android
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+          ./gradlew --no-daemon :app:assembleRelease \
+            -PversionName="${GITHUB_REF_NAME#v}" -PversionCode="${{ github.run_number }}"
+          rm -f "$RUNNER_TEMP/release.jks"
+          mkdir -p ../dist
+          cp app/build/outputs/apk/release/app-release.apk "../dist/androvia-${GITHUB_REF_NAME#v}.apk"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+      # Optional: refresh the store's release index immediately instead of waiting up to 15 minutes.
+      - name: Tell the store about the release
+        if: env.STORE_DISPATCH_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.STORE_DISPATCH_TOKEN }}
+        run: gh api repos/aman-dhakar-191/private-app-store/dispatches -f event_type=app-released

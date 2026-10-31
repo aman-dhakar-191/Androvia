@@ -28,6 +28,8 @@ jobs:
         run: ./gradlew --no-daemon :core:test :capabilities:test
       - name: Lint and assemble debug APK
         run: ./gradlew --no-daemon lintDebug assembleDebug
+      - name: Assemble release (unsigned; checks the release config builds)
+        run: ./gradlew --no-daemon :app:assembleRelease -PversionName=0.0.0-ci -PversionCode=1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
