@@ -8,7 +8,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
 	"github.com/aman-dhakar-191/androvia/relay/internal/testutil"
 	"github.com/aman-dhakar-191/androvia/relay/migrations"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestNewValidates(t *testing.T) {
@@ -152,24 +150,10 @@ func TestMemoryStore(t *testing.T) { storeContract(t, devices.NewMemoryStore()) 
 
 // TestPostgresStore runs only when RELAY_TEST_DATABASE_URL points at a disposable database.
 func TestPostgresStore(t *testing.T) {
-	url := os.Getenv("RELAY_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("RELAY_TEST_DATABASE_URL not set")
-	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	if err := migrations.Apply(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
+	pool := testutil.PGPool(t)
 	if err := migrations.Apply(ctx, pool); err != nil { // re-running must be a no-op
 		t.Fatalf("second Apply: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `DELETE FROM devices`); err != nil {
-		t.Fatal(err)
 	}
 	storeContract(t, devices.NewPostgresStore(pool))
 

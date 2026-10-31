@@ -221,3 +221,19 @@ func TestValidate(t *testing.T) {
 		t.Fatalf("bad device id accepted: %v", err)
 	}
 }
+
+func TestCallerSuppliedRequestID(t *testing.T) {
+	s := &fakeSender{}
+	r := newRouter(s)
+	want := protocol.NewID()
+	s.onSend = func(e *protocol.Envelope) {
+		r.HandleResponse(dev, reply(protocol.TypeResult, e.ID, dev, `{"status":"ok","data":{}}`))
+	}
+	resp, err := r.Dispatch(context.Background(), dev, Request{Capability: "device.info", Version: 1, ID: want})
+	if err != nil || resp.RequestID != want || s.sent[0].ID != want {
+		t.Fatalf("%+v %v", resp, err)
+	}
+	if _, err := r.Dispatch(context.Background(), dev, Request{Capability: "device.info", Version: 1, ID: "not-a-uuid"}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("bad id accepted: %v", err)
+	}
+}

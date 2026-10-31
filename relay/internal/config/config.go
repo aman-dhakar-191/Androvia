@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,9 @@ type Config struct {
 	TLSCertFile   string
 	TLSKeyFile    string
 	AllowInsecure bool // plain HTTP/WS; development only
+
+	TokenTTL           time.Duration // lifetime of client access tokens
+	AuditRetentionDays int
 
 	HandshakeTimeout time.Duration
 	HeartbeatTimeout time.Duration // a device is dropped after this long without a valid message (3 x 25 s beats)
@@ -35,7 +39,23 @@ func Load(getenv func(string) string) (Config, error) {
 		HandshakeTimeout: 10 * time.Second,
 		HeartbeatTimeout: 75 * time.Second,
 	}
+	c.TokenTTL = 10 * time.Minute
+	c.AuditRetentionDays = 90
 	var errs []error
+	if v := getenv("RELAY_TOKEN_TTL_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 60 {
+			errs = append(errs, errors.New("RELAY_TOKEN_TTL_MINUTES must be a whole number from 1 to 60"))
+		} else {
+			c.TokenTTL = time.Duration(n) * time.Minute
+		}
+	}
+	if v := getenv("RELAY_AUDIT_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err != nil || n < 1 || n > 3650 {
+			errs = append(errs, errors.New("RELAY_AUDIT_RETENTION_DAYS must be a whole number from 1 to 3650"))
+		} else {
+			c.AuditRetentionDays = n
+		}
+	}
 	if c.DatabaseURL == "" {
 		errs = append(errs, errors.New("RELAY_DATABASE_URL is required"))
 	}

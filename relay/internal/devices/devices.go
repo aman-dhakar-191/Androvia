@@ -3,16 +3,12 @@ package devices
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"sort"
 	"sync"
 	"time"
-	"unicode"
+
+	"github.com/aman-dhakar-191/androvia/relay/internal/keys"
 )
 
 type Status string
@@ -38,45 +34,20 @@ type Device struct {
 
 // New validates the inputs and derives the device id from the key, so an id cannot be claimed without the key.
 func New(label string, spki []byte, now time.Time) (Device, error) {
-	if l := len([]rune(label)); l == 0 || l > 64 {
-		return Device{}, errors.New("label must be 1-64 characters")
-	}
-	for _, r := range label {
-		if !unicode.IsPrint(r) {
-			return Device{}, errors.New("label contains non-printable characters")
-		}
-	}
-	if _, err := parseKey(spki); err != nil {
+	if err := keys.ValidLabel(label); err != nil {
 		return Device{}, err
 	}
-	sum := sha256.Sum256(spki)
+	if _, err := keys.ParseP256(spki); err != nil {
+		return Device{}, err
+	}
 	return Device{
-		ID: hex.EncodeToString(sum[:]), Label: label, PublicKey: append([]byte(nil), spki...),
+		ID: keys.ID(spki), Label: label, PublicKey: append([]byte(nil), spki...),
 		Status: StatusActive, CreatedAt: now.UTC(),
 	}, nil
 }
 
-func parseKey(spki []byte) (*ecdsa.PublicKey, error) {
-	k, err := x509.ParsePKIXPublicKey(spki)
-	if err != nil {
-		return nil, errors.New("public_key is not a valid SubjectPublicKeyInfo")
-	}
-	ek, ok := k.(*ecdsa.PublicKey)
-	if !ok || ek.Curve != elliptic.P256() {
-		return nil, errors.New("public_key must be an EC P-256 key")
-	}
-	return ek, nil
-}
-
 // Verify checks an ASN.1 DER ECDSA/SHA-256 signature over msg with the device key.
-func (d Device) Verify(msg, sig []byte) bool {
-	k, err := parseKey(d.PublicKey)
-	if err != nil {
-		return false
-	}
-	h := sha256.Sum256(msg)
-	return ecdsa.VerifyASN1(k, h[:], sig)
-}
+func (d Device) Verify(msg, sig []byte) bool { return keys.Verify(d.PublicKey, msg, sig) }
 
 // Store persists devices. Implementations must be safe for concurrent use.
 type Store interface {

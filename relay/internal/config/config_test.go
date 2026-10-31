@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -90,5 +91,30 @@ func TestErrorDoesNotEchoSecrets(t *testing.T) {
 	_, err := Load(env(m))
 	if err == nil || strings.Contains(err.Error(), "supersecret") {
 		t.Fatalf("error must not contain the token: %v", err)
+	}
+}
+
+func TestTokenAndRetentionSettings(t *testing.T) {
+	c, err := Load(env(valid()))
+	if err != nil || c.TokenTTL != 10*time.Minute || c.AuditRetentionDays != 90 {
+		t.Fatalf("defaults: %v %+v", err, c)
+	}
+	m := valid()
+	m["RELAY_TOKEN_TTL_MINUTES"] = "30"
+	m["RELAY_AUDIT_RETENTION_DAYS"] = "7"
+	if c, err = Load(env(m)); err != nil || c.TokenTTL != 30*time.Minute || c.AuditRetentionDays != 7 {
+		t.Fatalf("%v %+v", err, c)
+	}
+	for _, bad := range []map[string]string{
+		{"RELAY_TOKEN_TTL_MINUTES": "0"}, {"RELAY_TOKEN_TTL_MINUTES": "61"}, {"RELAY_TOKEN_TTL_MINUTES": "ten"},
+		{"RELAY_AUDIT_RETENTION_DAYS": "0"}, {"RELAY_AUDIT_RETENTION_DAYS": "99999"}, {"RELAY_AUDIT_RETENTION_DAYS": "-1"},
+	} {
+		m := valid()
+		for k, v := range bad {
+			m[k] = v
+		}
+		if _, err := Load(env(m)); err == nil {
+			t.Errorf("accepted %v", bad)
+		}
 	}
 }
