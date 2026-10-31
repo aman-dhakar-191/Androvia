@@ -22,7 +22,7 @@ rejected (`unsupported_message`), never ignored silently.
 | Field | Rules |
 |---|---|
 | `v` | Integer protocol version. Receiver supports a set; unsupported → `unsupported_version`. |
-| `type` | One of `hello`, `hello_ack`, `heartbeat`, `command`, `result`, `error`, `cancel`. |
+| `type` | One of `hello`, `hello_ack`, `auth` (device → relay only, completes the handshake), `heartbeat`, `command`, `result`, `error`, `cancel`. |
 | `id` | UUID, unique per sender. Receiver keeps seen IDs until `exp` to reject replays (`replayed`). |
 | `corr` | Required on `result`, `error`, `cancel`; absent on `command`. |
 | `device` | Target/source device ID. Must match the authenticated connection; never trusted by itself. |
@@ -47,15 +47,26 @@ Stable error codes: `malformed`, `unsupported_version`, `unsupported_message`, `
 `unknown_capability`, `capability_unavailable`, `permission_required`, `permission_denied`, `invalid_args`,
 `timeout`, `cancelled`, `rate_limited`, `internal`.
 
-## Handshake (Phase 2/3, not implemented in Phase 1)
+## Handshake (implemented by the relay; the Android client is not built yet)
 
-1. Device opens WSS, sends `hello` (versions supported, device ID, app version).
-2. Relay replies `hello_ack` with a random 32-byte nonce and chosen version.
-3. Device sends a signature (ECDSA P-256/SHA-256) over `nonce || device ID || relay origin`; relay verifies it
-   against the stored public key and rejects unknown or revoked devices.
-4. Heartbeat every 25 s; relay drops a connection after 3 missed beats. Device reconnects with bounded exponential
-   backoff with equal jitter (base 1 s, cap 60 s; delay is in [ceiling/2, ceiling], never 0).
-5. Short-lived session credential and renewal rules are decided in Phase 3.
+1. Device opens WSS and sends `hello` (`{"versions":[1],"app_version":"…"}`, `device` = its id).
+2. Relay replies `hello_ack` (`{"nonce":"<base64, 32 random bytes>","version":1}`, `corr` = the hello id).
+3. Device sends `auth` (`{"signature":"<base64 ASN.1 DER ECDSA P-256/SHA-256>"}`) over
+   `"androvia/relay-auth/v1\0" || nonce || deviceID(64 ASCII hex) || relayOrigin` (e.g. `wss://relay.example.com`,
+   no trailing slash). The relay verifies it against the registered key. Unknown, revoked and badly-signed devices
+   are all closed with `1008 "authentication failed"`.
+4. Device sends `heartbeat` every 25 s; the relay answers each one. The relay drops a device after 75 s of silence
+   (close `4003`). Reconnect with bounded exponential backoff with equal jitter (base 1 s, cap 60 s; delay is in
+   [ceiling/2, ceiling], never 0).
+5. Short-lived session credentials and renewal are decided in Phase 3.
+
+WebSocket close codes: `1008` auth/protocol failure, `1009` message too large, `4001` replaced by a newer connection,
+`4002` device revoked, `4003` heartbeat timeout.
+
+After authentication a device may send only `heartbeat`, `result` and `error`. Anything else gets an `error`
+(`unsupported_message`); five violations close the connection. A message whose `device` differs from the
+authenticated device closes it immediately. Relay `error` messages always carry a `corr` (a fresh id if there was
+nothing to answer).
 
 ## Cancellation and idempotency
 

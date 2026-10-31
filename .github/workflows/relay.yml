@@ -1,0 +1,71 @@
+name: Relay
+
+on:
+  push:
+    branches: [main]
+    paths: ['relay/**', 'deploy/**', '.github/workflows/relay.yml']
+  pull_request:
+    paths: ['relay/**', 'deploy/**', '.github/workflows/relay.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go vet, format, tests (with PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: relay_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U relay -d relay_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: relay/go.mod
+          cache-dependency-path: relay/go.sum
+      - name: Format check
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - name: Tests (race detector, real PostgreSQL)
+        env:
+          RELAY_TEST_DATABASE_URL: postgres://relay:ci-only-password@localhost:5432/relay_test?sslmode=disable
+        run: go test -race -count=1 -v ./... 2>&1 | tee /tmp/test.log | grep -E '^(--- FAIL|FAIL|ok|PASS)' ; test "${PIPESTATUS[0]}" = 0
+      - name: Postgres test must not have been skipped
+        run: grep -q -- '--- PASS: TestPostgresStore' /tmp/test.log
+
+  compose:
+    name: Docker image and compose stack smoke test
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-only-password
+      RELAY_ADMIN_TOKEN: ci-only-admin-token-0123456789abcdef0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack
+        run: docker compose -f deploy/docker-compose.yml up -d --build --wait
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 30); do curl -sf localhost:8443/healthz && break; sleep 1; done
+          curl -sf localhost:8443/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8443/v1/devices)" = 401
+          curl -sf -H "Authorization: Bearer $RELAY_ADMIN_TOKEN" localhost:8443/v1/devices
+      - name: Relay logs
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml logs relay
+      - name: The admin token must not appear in the logs
+        run: "! docker compose -f deploy/docker-compose.yml logs relay | grep -q \"$RELAY_ADMIN_TOKEN\""
+      - name: Stop
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
