@@ -17,6 +17,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -28,6 +32,12 @@ import kotlinx.coroutines.launch
 class RuntimeService : Service() {
     @Inject lateinit var store: RuntimeStateStore
     @Inject @AppScope lateinit var appScope: CoroutineScope
+    @Inject lateinit var connector: RelayConnector
+    @Inject lateinit var relayState: RelayStateStore
+
+    // Lives and dies with the service: no service, no relay connection.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var relayJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,10 +59,13 @@ class RuntimeService : Service() {
             return START_NOT_STICKY
         }
         appScope.launch { store.setServiceRunning(true) }
+        if (relayJob?.isActive != true) relayJob = serviceScope.launch { connector.runWhileActive() }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
+        relayState.reset()
         appScope.launch { store.setServiceRunning(false) }
         super.onDestroy()
     }
@@ -68,7 +81,7 @@ class RuntimeService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Androvia runtime")
-            .setContentText("Running on this device. No relay connected.")
+            .setContentText("Androvia runtime is running.")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)

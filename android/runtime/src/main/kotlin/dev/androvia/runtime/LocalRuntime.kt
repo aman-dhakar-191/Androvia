@@ -47,6 +47,9 @@ class LocalRuntime @Inject constructor(
         cached ?: withContext(Dispatchers.IO) { keys.identity() }.also { cached = it }
     }
 
+    /** Signs with the device key (used for the relay handshake). Keystore calls can block, so they run off the caller's thread. */
+    suspend fun sign(data: ByteArray): ByteArray = withContext(Dispatchers.IO) { keys.sign(data) }
+
     private val dispatcher = CommandDispatcher(registry, policy, ReplayGuard(clock), clock) { identity().deviceId }
 
     suspend fun dispatch(raw: String): Envelope = dispatcher.dispatch(raw)

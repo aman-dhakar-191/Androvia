@@ -1,0 +1,76 @@
+name: Relay end-to-end
+
+# The Kotlin relay client against the REAL Go relay and PostgreSQL. This is the check that the two independent
+# implementations agree on the envelope, the signed handshake bytes and the close codes.
+on:
+  push:
+    branches: [main]
+    paths: ['relay/**', 'android/api/**', 'android/core/**', 'android/capabilities/**', '.github/workflows/e2e.yml']
+  pull_request:
+    paths: ['relay/**', 'android/api/**', 'android/core/**', 'android/capabilities/**', '.github/workflows/e2e.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Kotlin client against the Go relay
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: relay_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U relay -d relay_e2e"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      RELAY_E2E_ADMIN_TOKEN: ci-only-admin-token-0123456789abcdef0123456789
+      RELAY_E2E_URL: http://127.0.0.1:8443
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: relay/go.mod
+          cache-dependency-path: relay/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and start the relay
+        working-directory: relay
+        run: |
+          go build -o "$RUNNER_TEMP/relay" ./cmd/relay
+          RELAY_DATABASE_URL='postgres://relay:ci-only-password@localhost:5432/relay_e2e?sslmode=disable' \
+          RELAY_ADMIN_TOKEN="$RELAY_E2E_ADMIN_TOKEN" \
+          RELAY_PUBLIC_ORIGIN=ws://127.0.0.1:8443 \
+          RELAY_ALLOW_INSECURE_HTTP=true \
+          RELAY_LISTEN_ADDR=127.0.0.1:8443 \
+          nohup "$RUNNER_TEMP/relay" > "$RUNNER_TEMP/relay.log" 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8443/healthz && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/relay.log"; exit 1
+
+      - name: Client tests (fake relay) and end-to-end tests (real relay)
+        working-directory: android
+        run: ./gradlew --no-daemon :api:test
+
+      - name: The end-to-end tests must have run, not been skipped
+        working-directory: android
+        run: |
+          f=api/build/test-results/test/TEST-dev.androvia.api.RelayE2ETest.xml
+          test -f "$f"
+          grep -q 'skipped="0"' "$f"
+          grep -Eq 'tests="([1-9][0-9]*)"' "$f"
+          grep -o 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*"' "$f"
+
+      - name: The admin token must not appear in the relay log
+        if: always()
+        run: |
+          cat "$RUNNER_TEMP/relay.log" | tail -40
+          ! grep -q "$RELAY_E2E_ADMIN_TOKEN" "$RUNNER_TEMP/relay.log"

@@ -24,3 +24,21 @@ Record: device model, OEM skin, Android version, build (`versionName`), date, te
 
 Also record on each device: whether StrongBox was used, and any OEM "auto-start"/"battery optimization" setting
 that changed the results.
+
+## Relay connection (added with the Android relay client)
+Needs a running relay with this phone registered (the app shows the device id and public key). Record the same fields.
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| R1 | Enter `wss://…` relay address, switch relay on while the runtime is stopped | Status "Waiting for the runtime to start"; no connection | |
+| R2 | Start the runtime | Within ~10 s status "Connected to the relay"; relay lists the device online | |
+| R3 | Send `device.info` from the relay while the capability is OFF | Relay reports 422 `permission_denied` from the device | |
+| R4 | Enable `device.info`, send it again | 200 with this phone's model | |
+| R5 | Screen off 10 min, send a command | Works, or note the exact delay/failure (Doze) | |
+| R6 | Lock the phone 30 min, send a command | Same; note whether the connection survived | |
+| R7 | Switch Wi-Fi to mobile data | Reconnects within ~1 min | |
+| R8 | Airplane mode 2 min, then off | Status shows reconnecting, then connected again | |
+| R9 | Stop the runtime | Relay shows the device offline within seconds | |
+| R10 | Revoke the device on the relay | App shows "revoked" and stops retrying | |
+| R11 | Enter `http://…` or `ws://…` | App refuses the address with an explanation | |
+| R12 | Wrong address / unregistered phone | Message explains the relay rejected it; keeps retrying with backoff | |

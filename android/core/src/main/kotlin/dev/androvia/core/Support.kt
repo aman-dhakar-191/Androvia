@@ -31,7 +31,8 @@ class ExponentialBackoff(
 
 enum class RuntimeStatus { STOPPED, OFFLINE, RECONNECTING, CONNECTED, PERMISSION_LIMITED }
 
-enum class RelayState { NOT_CONFIGURED, RECONNECTING, CONNECTED }
+/** FAILED: the connection stopped and needs attention (revoked, replaced, invalid address). */
+enum class RelayState { NOT_CONFIGURED, RECONNECTING, CONNECTED, FAILED }
 
 object RuntimeStatusResolver {
     /** PERMISSION_LIMITED means the service runs but its notification is hidden because the permission was denied. */

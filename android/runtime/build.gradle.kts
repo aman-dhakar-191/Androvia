@@ -30,6 +30,7 @@ dependencies {
     api(project(":core"))
     api(project(":capabilities"))
     api(project(":authentication"))
+    api(project(":api"))
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.core.ktx)
 

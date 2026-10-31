@@ -9,7 +9,7 @@ Go service in `relay/`: the device WebSocket endpoint, a small HTTPS API, comman
 | Strict envelope parser, handshake, heartbeat, routing, registry, migrations | Implemented; Go tests pass with the race detector |
 | PostgreSQL store and migrations | Implemented; store test run against PostgreSQL 16 |
 | Docker image and Compose stack | Written; verified only by the `Relay` CI job |
-| **Android WebSocket client** | **Not implemented.** Only a simulated device in Go tests speaks the protocol. The Android app cannot connect yet |
+| Android WebSocket client (`android/api`, wired in `android/runtime`) | Implemented. Tested against a fake relay and against this relay (CI end-to-end job); **never run on a physical device** |
 | Pairing, per-client credentials, scopes, DB audit log, rate limiting | Phase 3 / Phase 7, **not implemented** |
 | MCP gateway | Phase 4, not implemented |
 

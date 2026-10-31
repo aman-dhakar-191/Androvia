@@ -28,7 +28,7 @@ func Load(getenv func(string) string) (Config, error) {
 		ListenAddr:       or(getenv("RELAY_LISTEN_ADDR"), ":8443"),
 		DatabaseURL:      getenv("RELAY_DATABASE_URL"),
 		AdminToken:       getenv("RELAY_ADMIN_TOKEN"),
-		PublicOrigin:     strings.TrimRight(getenv("RELAY_PUBLIC_ORIGIN"), "/"),
+		PublicOrigin:     strings.ToLower(strings.TrimRight(strings.TrimSpace(getenv("RELAY_PUBLIC_ORIGIN")), "/")), // scheme and host are case-insensitive; devices lower-case too
 		TLSCertFile:      getenv("RELAY_TLS_CERT_FILE"),
 		TLSKeyFile:       getenv("RELAY_TLS_KEY_FILE"),
 		AllowInsecure:    getenv("RELAY_ALLOW_INSECURE_HTTP") == "true",
