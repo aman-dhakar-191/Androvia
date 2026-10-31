@@ -47,6 +47,7 @@ device · someone with physical access to a locked device.
 | T22 | Browser-based DNS rebinding against `/mcp` | `Origin` is validated against the relay's own origin; no wildcard CORS on `/mcp`; every request needs a bearer token a browser page cannot obtain. *Phase 4, tested.* |
 | T23 | **Prompt injection through device-supplied text** returned to an agent | **Not mitigated.** Today's results are a model name and OS version. Results are structured data, but the agent decides how to treat them. Must be re-assessed before any capability returns user content. See `docs/mcp.md`. |
 | T24 | An agent over-reaches (tries every device and capability) | Scopes are per device and per capability; an ungranted device looks non-existent; every call is audited with `channel: mcp`; failed authentication is rate limited. The agent cannot widen its own grants. *Phase 4.* |
+| T25 | The bridge's private key is stolen from the user's disk, or read by another local user | Key file is mode `0600` and the bridge refuses to start if group/other can read it (POSIX); the key is created on the machine and never leaves it; a stolen key gives exactly that client's grants and is cut off by revoking the client. **Residual:** anything running as the same user can use the key, and the Windows permission check is not implemented. *Phase 4, tested on POSIX.* |
 
 ## Out of scope for now
 Rooted/compromised OS, hardware attacks on the TEE, nation-state adversaries, relay hosting hardening (Phase 7).

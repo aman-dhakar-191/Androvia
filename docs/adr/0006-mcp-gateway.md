@@ -38,11 +38,11 @@ list results, new request headers.
 ## Not done, on purpose
 * **Device capability advertisement.** Needed to list only tools that are *enabled on the phone* (spec §9). Requires a
   device→relay message and Android UI/state. Until then a listed tool may answer `permission_denied` from the device.
-* **A token-refreshing bridge** (stdio⇄HTTP) so hosts that can only hold a fixed header keep working past the token lifetime.
 * **OAuth.** If an important MCP host cannot be configured with a custom header, this is the follow-up.
 
 ## Consequences
-* The 10-minute token is the main usability limit for agents today.
+* The 10-minute token is the main usability limit for agents that talk HTTP directly. `cmd/mcpbridge` (stdio⇄HTTP, holds the key,
+  logs in and refreshes by itself) removes it for any host that can start a stdio server; it adds no authority of its own.
 * Data returned by devices flows into an LLM context: it is untrusted. Every new capability must be reviewed for what it
   returns before it gets a tool.
 * The tool allowlist is also a security boundary; the tests that enforce it (unknown tool, extra properties, scope per tool)

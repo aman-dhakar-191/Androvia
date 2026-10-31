@@ -14,21 +14,57 @@ engine, audit log and command routing. Design decisions: `docs/adr/0006-mcp-gate
 |---|---|
 | Protocol revisions served | `2026-07-28` (stateless, `server/discover`), `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05` (as reported by the server's own `server/discover`) |
 | Tested with | the official **Go** SDK client (negotiates `2026-07-28`: all tool, grant, error and cancellation tests); the official **Python** SDK `mcp==2.3.0` client on `2025-11-25` (initialize handshake) and on `2026-07-28` (`discover`), in CI job `MCP interop`; and raw JSON-RPC against `2024-11-05`, `2025-03-26`, `2025-06-18` and `2025-11-25` (initialize, `tools/list`, `tools/call`) |
-| **Not tested** | Claude Desktop / Claude Code, ChatGPT, Cursor, MCP Inspector, the TypeScript SDK. They should work if they can send an `Authorization` header, but that is unverified |
+| **Not tested** | Claude Desktop / Claude Code, ChatGPT, Cursor, MCP Inspector, the TypeScript SDK. They should work through `mcpbridge` (any host that starts a stdio server) or if they can send an `Authorization` header, but that is unverified |
 | Authorization | Androvia's own signed-challenge login (see below), **not OAuth** |
 | Tools | two, both read-only (below) |
 | Resources, prompts, `listChanged` notifications | not provided |
 
 ## Connecting
+
+### Recommended: the stdio bridge (`mcpbridge`)
+Most MCP hosts can start a local server over stdio but cannot refresh a 10-minute token. `mcpbridge` is that local server:
+it holds the client's private key, logs in to the relay itself, refreshes the token, and forwards MCP messages to `/mcp`.
+The host never sees a token or a key.
+
+Build it with Go 1.25: `cd relay && go build -o mcpbridge ./cmd/mcpbridge`. **No prebuilt binaries are published yet.**
+
+```
+# once: the relay administrator gives you a one-time pairing code (docs/relay.md)
+ANDROVIA_PAIRING_CODE=<code> mcpbridge pair -relay https://relay.example.com
+
+# in the MCP host's configuration (the command and arguments are all it needs):
+{ "command": "mcpbridge", "args": ["run", "-relay", "https://relay.example.com"] }
+```
+
+* `pair` generates an EC P-256 key in memory, redeems the code, and writes `client-key.pem` (mode `0600`) and `client.json`
+  to `-dir` (default: `<user config dir>/androvia`). It never overwrites an existing identity and writes nothing unless the
+  relay accepted the code. Prefer `ANDROVIA_PAIRING_CODE` over `-code`: command-line arguments are visible to other local users.
+* `run` refuses to start if the key file is readable by other users, if the relay address is not `https://` (plain `http://`
+  only to a loopback address, with `-allow-insecure`), or if the relay rejects the login (revoked client, wrong key, or an
+  `-origin` that does not equal the relay's `RELAY_PUBLIC_ORIGIN`; by default it is derived from `-relay`, `https` → `wss`).
+* The token lives in memory only. It is renewed 30 s before it expires, and once on a `401` (for example after a relay
+  restart). If the relay then rejects the client, the host's request gets a JSON-RPC error that says so rather than hanging.
+* Diagnostics go to stderr only; stdout carries the protocol. Neither the token nor the key is ever logged.
+* **The bridge adds no authority.** The relay authorises every call against the grants of the client whose key the bridge
+  holds. Whoever can read that key (or run the bridge as that user) has exactly that client's access: protect it like an SSH
+  key, and revoke the client (`POST /v1/admin/clients/{id}/revoke`) if the machine is lost.
+* Messages are piped through the official SDK's transports, so protocol-version negotiation is the SDK's, not ours.
+
+Tested: 16 Go tests (`internal/mcpgw/bridge_test.go`: tools through the bridge, no extra authority, proactive refresh, re-login
+after the relay forgot the token, revoked client, wrong origin, single shared login, key permissions, no overwrite,
+single-use code, bad address, no secrets in logs), plus the **built binary driven over stdio by the official Python MCP
+SDK** on `2025-11-25` and `2026-07-28` in CI job `MCP interop`. **Not tested with Claude Desktop/Code or any other real
+host**; Windows file-permission checks are not implemented (the permission check is skipped there).
+
+### Direct HTTP
 1. An administrator registers the phone, issues you a pairing code with the grants you need, and you pair and log in
    (`deploy/examples/client-login.sh`, or any code that follows `docs/relay.md` → "Login"). You get an access token.
 2. Point your MCP client at `https://<relay>/mcp` and send `Authorization: Bearer <token>` on every request.
 3. Example with the official Python SDK: `deploy/examples/mcp_client.py` (run `python mcp_client.py --discover` for the
-   stateless 2026-07-28 path).
+   stateless 2026-07-28 path; `--stdio ... -- mcpbridge run ...` goes through the bridge).
 
 **Tokens are short-lived** (10 minutes by default, at most 60 via `RELAY_TOKEN_TTL_MINUTES`) and there is no refresh
-token. A client that can only be given a fixed header must be given a fresh token before it expires. A small bridge that
-holds your key and logs in by itself is planned but **not built**.
+token. A client that speaks HTTP directly must log in again before expiry; the bridge does that for you.
 
 ### Why not OAuth
 MCP makes authorization optional, and its OAuth profile (authorization code with a human consent screen, discovery, client
