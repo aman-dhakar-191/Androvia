@@ -75,6 +75,7 @@ func ReasonOf(err error) Reason {
 type Principal struct {
 	ClientID     string
 	CredentialID string
+	Expires      time.Time // when the access token stops working
 }
 
 // Message is exactly what a client signs. nonce, clientID and credentialID have fixed lengths (32 bytes, 36 and 36
@@ -270,7 +271,7 @@ func (a *Authenticator) Verify(ctx context.Context, bearer string) (Principal, e
 	if err != nil {
 		return Principal{}, err
 	}
-	return Principal{ClientID: rec.clientID, CredentialID: rec.credentialID}, nil
+	return Principal{ClientID: rec.clientID, CredentialID: rec.credentialID, Expires: rec.expires}, nil
 }
 
 // RevokeClient forgets every token of the client (call after revoking it in the store).

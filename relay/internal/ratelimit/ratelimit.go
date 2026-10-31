@@ -58,3 +58,17 @@ func (l *Limiter) sweep(cutoff time.Time) {
 		}
 	}
 }
+
+// Blocked reports whether key is currently at its limit, without recording an attempt.
+func (l *Limiter) Blocked(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cutoff := l.now().Add(-l.window)
+	n := 0
+	for _, t := range l.hits[key] {
+		if t.After(cutoff) {
+			n++
+		}
+	}
+	return n >= l.limit
+}

@@ -22,7 +22,8 @@ Foundation stage. **Nothing has been run on a physical device.** Verified state 
 | Android relay client (`android/api` + wiring in `runtime`/`app`: opt-in `wss://` connection while the runtime runs, handshake, heartbeat, reconnect, command routing to the local dispatcher) | Implemented. 14 JVM tests against a fake relay and 7 end-to-end tests against the real Go relay pass (CI job `Relay end-to-end`). The Android wiring compiles in CI; **never run on a physical device**. See ADR 0004 |
 | Release signing + `release.yml` + store listing | Configured; **untested** until signing secrets exist and a tag is pushed. See `docs/distribution.md` |
 | Client identity, pairing codes, signed login, per-device scopes, revocation, rotation, audit log (Phase 3) | Implemented in the relay and tested (Go, Kotlin against the real relay, and a curl/openssl walkthrough). **Pairing is approved by the administrator, not on the phone.** See `docs/relay.md`, ADR 0005 |
-| MCP gateway, dashboard, SDKs | Not started |
+| MCP gateway (`/mcp`: two read-only tools, stateless, official Go SDK; protocol revisions 2024-11-05 to 2026-07-28) | Implemented and tested against the official Go and Python MCP SDK clients (CI job `MCP interop`). **Not tested with Claude Desktop/Code or other hosts; auth is Androvia's own token, not OAuth; tokens last 10 minutes.** See `docs/mcp.md`, ADR 0006 |
+| Dashboard, SDKs | Not started |
 
 Limitations: the relay connection is opt-in and exists only while the runtime runs; no reboot auto-start; no
 foreground-service restart after the process dies; no certificate pinning; the relay's administrator can pair clients without the phone's approval. See `docs/testing/physical-device-checklist.md`.
@@ -49,4 +50,5 @@ cd android
 - [Relay](docs/relay.md)
 - [ADR 0004 — Android relay client](docs/adr/0004-android-relay-client.md)
 - [ADR 0005 — client identity and authorization](docs/adr/0005-identity-and-authorization.md)
-- [Client login example](deploy/examples/client-login.sh)
+- [MCP gateway](docs/mcp.md) · [ADR 0006 — MCP gateway](docs/adr/0006-mcp-gateway.md)
+- [Client login example](deploy/examples/client-login.sh) · [Python MCP client example](deploy/examples/mcp_client.py)

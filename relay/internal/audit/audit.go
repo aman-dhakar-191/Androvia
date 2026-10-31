@@ -52,7 +52,7 @@ type Event struct {
 // payload (token, nonce, signature, code, args, key).
 var allowedDetail = map[string]bool{
 	"capability": true, "reason": true, "result_code": true, "remote": true, "scopes": true, "label": true,
-	"target_client": true, "target_device": true, "credential_id": true, "count": true, "expires_at": true, "limit": true,
+	"target_client": true, "target_device": true, "credential_id": true, "count": true, "expires_at": true, "limit": true, "channel": true,
 }
 
 const (

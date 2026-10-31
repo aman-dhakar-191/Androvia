@@ -21,6 +21,7 @@ import (
 	"github.com/aman-dhakar-191/androvia/relay/internal/audit"
 	"github.com/aman-dhakar-191/androvia/relay/internal/auth"
 	"github.com/aman-dhakar-191/androvia/relay/internal/clients"
+	"github.com/aman-dhakar-191/androvia/relay/internal/commands"
 	"github.com/aman-dhakar-191/androvia/relay/internal/connections"
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
 	"github.com/aman-dhakar-191/androvia/relay/internal/policy"
@@ -78,9 +79,10 @@ func newEnv(t *testing.T, limits api.Limits) *env {
 	rt.SetGrace(50 * time.Millisecond)
 	mgr := connections.NewManager(connections.Config{PublicOrigin: origin, HandshakeTimeout: 2 * time.Second, HeartbeatTimeout: 10 * time.Second, Audit: rec}, ds, rt, log, clk.now)
 	rt.Attach(mgr)
+	cmds := commands.New(commands.Deps{Devices: ds, Clients: cs, Authz: policy.NewAuthorizer(cs), Audit: rec, Disp: rt, Conns: mgr, Log: log, Now: clk.now})
 	srv := httptest.NewServer(api.New(api.Deps{
-		AdminToken: admin, Devices: ds, Clients: cs, Auth: auth.New(cs, origin, 10*time.Minute, clk.now), Authz: policy.NewAuthorizer(cs),
-		Audit: rec, AuditStore: as, Conns: mgr, Disp: rt, Log: log, Now: clk.now, Limits: limits,
+		AdminToken: admin, Devices: ds, Clients: cs, Auth: auth.New(cs, origin, 10*time.Minute, clk.now),
+		Audit: rec, AuditStore: as, Conns: mgr, Commands: cmds, Log: log, Now: clk.now, Limits: limits,
 	}).Handler(mgr.ServeWS))
 	t.Cleanup(func() { mgr.CloseAll(); srv.Close() })
 	return &env{t, srv, ds, cs, as, mgr, logs, clk}

@@ -65,3 +65,25 @@ func TestBoundedMemoryFailsClosed(t *testing.T) {
 		t.Fatal("expired keys were not swept")
 	}
 }
+
+func TestBlockedPeeksWithoutRecording(t *testing.T) {
+	c := &clock{time.Unix(1000, 0)}
+	l := ratelimit.New(2, time.Minute, 10, c.now)
+	for i := 0; i < 50; i++ {
+		if l.Blocked("a") {
+			t.Fatal("peeking recorded an attempt")
+		}
+	}
+	l.Allow("a")
+	l.Allow("a")
+	if !l.Blocked("a") {
+		t.Fatal("not blocked at the limit")
+	}
+	if l.Blocked("b") {
+		t.Fatal("another key is blocked")
+	}
+	c.t = c.t.Add(2 * time.Minute)
+	if l.Blocked("a") {
+		t.Fatal("still blocked after the window")
+	}
+}

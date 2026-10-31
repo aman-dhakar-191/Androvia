@@ -30,12 +30,12 @@ import (
 	"github.com/aman-dhakar-191/androvia/relay/internal/audit"
 	"github.com/aman-dhakar-191/androvia/relay/internal/auth"
 	"github.com/aman-dhakar-191/androvia/relay/internal/clients"
+	"github.com/aman-dhakar-191/androvia/relay/internal/commands"
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
 	"github.com/aman-dhakar-191/androvia/relay/internal/keys"
 	"github.com/aman-dhakar-191/androvia/relay/internal/policy"
 	"github.com/aman-dhakar-191/androvia/relay/internal/protocol"
 	"github.com/aman-dhakar-191/androvia/relay/internal/ratelimit"
-	"github.com/aman-dhakar-191/androvia/relay/internal/router"
 )
 
 const (
@@ -51,11 +51,6 @@ const (
 type Connections interface {
 	Online(deviceID string) bool
 	Disconnect(deviceID string)
-}
-
-// Dispatcher is what the API needs from the router.
-type Dispatcher interface {
-	Dispatch(ctx context.Context, deviceID string, q router.Request) (*router.Response, error)
 }
 
 // Limits are per-IP (and per-client) request budgets for the unauthenticated endpoints.
@@ -75,14 +70,18 @@ type Deps struct {
 	Devices    devices.Store
 	Clients    clients.Store
 	Auth       *auth.Authenticator
-	Authz      *policy.Authorizer
 	Audit      *audit.Recorder
 	AuditStore audit.Store
 	Conns      Connections
-	Disp       Dispatcher
-	Log        *slog.Logger
-	Now        func() time.Time
-	Limits     Limits // zero value means DefaultLimits
+	Commands   *commands.Service // the shared authorization + audit + dispatch path (also used by MCP)
+	// MCP, if set, is mounted at /mcp with its RFC 9728 metadata at MCPMetadata (see internal/mcpgw).
+	MCP         http.Handler
+	MCPMetadata http.Handler
+	MCPPath     string
+	MCPMetaPath string
+	Log         *slog.Logger
+	Now         func() time.Time
+	Limits      Limits // zero value means DefaultLimits
 }
 
 type Server struct {
@@ -114,6 +113,11 @@ func (s *Server) Handler(ws http.HandlerFunc) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /v1/device/ws", ws)
+
+	if s.d.MCP != nil {
+		mux.Handle(s.d.MCPPath, s.d.MCP)
+		mux.Handle("GET "+s.d.MCPMetaPath, s.d.MCPMetadata)
+	}
 
 	// Unauthenticated entry points (rate limited).
 	mux.HandleFunc("POST /v1/auth/challenge", s.challenge)
@@ -462,96 +466,33 @@ func (s *Server) removeCredential(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
-	grants, err := s.d.Clients.Grants(r.Context(), p.ClientID)
-	if err != nil {
-		s.internal(w, "list grants", err)
+	views, f := s.d.Commands.ListDevices(r.Context(), p.ClientID)
+	if f != nil {
+		s.writeFailure(w, f)
 		return
 	}
-	out := []deviceJSON{}
-	for _, g := range grants {
-		if !contains(g.Scopes, policy.ScopeDevicesRead) {
-			continue
-		}
-		d, err := s.d.Devices.Get(r.Context(), g.DeviceID)
-		if errors.Is(err, devices.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			s.internal(w, "get device", err)
-			return
-		}
-		out = append(out, s.toJSON(d))
+	out := make([]deviceJSON, 0, len(views))
+	for _, v := range views {
+		out = append(out, viewJSON(v))
 	}
 	writeJSON(w, 200, map[string]any{"devices": out})
 }
 
-// visibleDevice resolves {id} for a client. A device the client has no grant on looks exactly like a device that does
-// not exist.
-func (s *Server) visibleDevice(w http.ResponseWriter, r *http.Request) (devices.Device, bool) {
-	p := principalFrom(r.Context())
-	id := r.PathValue("id")
-	if !protocol.ValidDeviceID(id) {
-		writeError(w, 404, "device_not_found", "no such device")
-		return devices.Device{}, false
-	}
-	has, err := s.d.Authz.HasAny(r.Context(), p.ClientID, id)
-	if err != nil {
-		s.internal(w, "authorize", err)
-		return devices.Device{}, false
-	}
-	if !has {
-		s.d.Audit.Note(r.Context(), audit.Event{ActorType: audit.ActorClient, ActorID: p.ClientID, DeviceID: id, Action: "device.access", Outcome: audit.Denied, Detail: map[string]string{"reason": "no_grant"}})
-		writeError(w, 404, "device_not_found", "no such device")
-		return devices.Device{}, false
-	}
-	d, err := s.d.Devices.Get(r.Context(), id)
-	if errors.Is(err, devices.ErrNotFound) {
-		writeError(w, 404, "device_not_found", "no such device")
-		return devices.Device{}, false
-	}
-	if err != nil {
-		s.internal(w, "get device", err)
-		return devices.Device{}, false
-	}
-	return d, true
-}
-
 func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.visibleDevice(w, r)
-	if !ok {
-		return
-	}
 	p := principalFrom(r.Context())
-	if !s.require(w, r, p.ClientID, d.ID, policy.ScopeDevicesRead, "device.access", "") {
+	v, f := s.d.Commands.GetDevice(r.Context(), p.ClientID, r.PathValue("id"), commands.ChannelREST)
+	if f != nil {
+		s.writeFailure(w, f)
 		return
 	}
-	writeJSON(w, 200, s.toJSON(d))
+	writeJSON(w, 200, viewJSON(v))
 }
 
-// require checks a scope; on refusal it audits and answers 403.
-func (s *Server) require(w http.ResponseWriter, r *http.Request, clientID, deviceID, scope, action, capability string) bool {
-	err := s.d.Authz.Require(r.Context(), clientID, deviceID, scope)
-	if err == nil {
-		return true
-	}
-	if errors.Is(err, policy.ErrForbidden) {
-		detail := map[string]string{"reason": "missing_scope"}
-		if capability != "" {
-			detail["capability"] = capability
-		}
-		s.d.Audit.Note(r.Context(), audit.Event{ActorType: audit.ActorClient, ActorID: clientID, DeviceID: deviceID, Action: action, Outcome: audit.Denied, Detail: detail})
-		writeError(w, 403, "forbidden", "this client has no permission for that on this device")
-		return false
-	}
-	s.internal(w, "authorize", err)
-	return false
+func viewJSON(v commands.DeviceView) deviceJSON {
+	return deviceJSON{ID: v.ID, Label: v.Label, Status: v.Status, Online: v.Online, CreatedAt: v.CreatedAt, LastSeenAt: v.LastSeenAt}
 }
 
 func (s *Server) sendCommand(w http.ResponseWriter, r *http.Request) {
-	d, ok := s.visibleDevice(w, r)
-	if !ok {
-		return
-	}
 	p := principalFrom(r.Context())
 	var req struct {
 		Capability string          `json:"capability"`
@@ -562,56 +503,41 @@ func (s *Server) sendCommand(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	scope := policy.ExecuteScope(req.Capability)
-	if scope == "" {
-		writeError(w, 400, "invalid_request", "capability must look like 'device.info'")
-		return
-	}
-	if !s.require(w, r, p.ClientID, d.ID, scope, "command.denied", req.Capability) {
-		return
-	}
-	if d.Status != devices.StatusActive {
-		writeError(w, 409, "device_revoked", "device is revoked")
-		return
-	}
-
-	reqID := protocol.NewID()
-	// Audit first: no record, no command.
-	if err := s.d.Audit.Record(r.Context(), audit.Event{ActorType: audit.ActorClient, ActorID: p.ClientID, DeviceID: d.ID, Action: "command.dispatch",
-		Outcome: audit.Allowed, RequestID: reqID, Detail: map[string]string{"capability": req.Capability}}); err != nil {
-		writeError(w, 503, "audit_unavailable", "the audit log is unavailable, so the command was not sent")
-		return
-	}
-	resp, err := s.d.Disp.Dispatch(r.Context(), d.ID, router.Request{
-		Capability: req.Capability, Version: req.Version, Args: req.Args, Timeout: time.Duration(req.TimeoutMS) * time.Millisecond, ID: reqID,
+	res, f := s.d.Commands.Execute(r.Context(), commands.Request{
+		ClientID: p.ClientID, DeviceID: r.PathValue("id"), Capability: req.Capability, Version: req.Version, Args: req.Args,
+		Timeout: time.Duration(req.TimeoutMS) * time.Millisecond, Channel: commands.ChannelREST,
 	})
-	done := func(oc audit.Outcome, code string) {
-		s.d.Audit.Note(r.Context(), audit.Event{ActorType: audit.ActorClient, ActorID: p.ClientID, DeviceID: d.ID, Action: "command.complete", Outcome: oc, RequestID: reqID,
-			Detail: map[string]string{"capability": req.Capability, "result_code": code}})
+	if f != nil {
+		s.writeFailure(w, f)
+		return
 	}
-	switch {
-	case errors.Is(err, router.ErrInvalidRequest):
-		done(audit.Error, "invalid_request")
-		writeError(w, 400, "invalid_request", strings.TrimPrefix(err.Error(), router.ErrInvalidRequest.Error()+"\n"))
-	case errors.Is(err, router.ErrDeviceOffline):
-		done(audit.Error, "device_offline")
-		writeError(w, 409, "device_offline", "device is not connected")
-	case errors.Is(err, router.ErrTimeout):
-		done(audit.Error, "timeout")
-		writeError(w, 504, "timeout", "device did not answer in time")
-	case errors.Is(err, router.ErrDisconnected):
-		done(audit.Error, "device_disconnected")
-		writeError(w, 502, "device_disconnected", "device disconnected before answering")
-	case err != nil:
-		done(audit.Error, "internal")
-		s.internal(w, "dispatch", err)
-	case resp.Err != nil:
+	writeJSON(w, 200, map[string]any{"request_id": res.RequestID, "status": "ok", "result": json.RawMessage(res.Payload)})
+}
+
+// writeFailure is the REST vocabulary for the shared service's failures.
+func (s *Server) writeFailure(w http.ResponseWriter, f *commands.Failure) {
+	switch f.Kind {
+	case commands.KindNotFound:
+		writeError(w, 404, "device_not_found", "no such device")
+	case commands.KindForbidden:
+		writeError(w, 403, "forbidden", f.Message)
+	case commands.KindInvalid:
+		writeError(w, 400, "invalid_request", f.Message)
+	case commands.KindRevoked:
+		writeError(w, 409, "device_revoked", f.Message)
+	case commands.KindOffline:
+		writeError(w, 409, "device_offline", f.Message)
+	case commands.KindTimeout:
+		writeError(w, 504, "timeout", f.Message)
+	case commands.KindDisconnected:
+		writeError(w, 502, "device_disconnected", f.Message)
+	case commands.KindAuditUnavailable:
+		writeError(w, 503, "audit_unavailable", f.Message)
+	case commands.KindDevice:
 		// The device answered with an error (e.g. permission_denied): a normal outcome, reported as-is.
-		done(audit.Denied, resp.Err.Code)
-		writeJSON(w, 422, map[string]any{"request_id": reqID, "status": "error", "error": map[string]string{"code": resp.Err.Code, "message": resp.Err.Message, "source": "device"}})
+		writeJSON(w, 422, map[string]any{"request_id": f.RequestID, "status": "error", "error": map[string]string{"code": f.DeviceCode, "message": f.DeviceMessage, "source": "device"}})
 	default:
-		done(audit.Allowed, "ok")
-		writeJSON(w, 200, map[string]any{"request_id": reqID, "status": "ok", "result": json.RawMessage(resp.Result)})
+		writeError(w, 500, "internal", "internal error")
 	}
 }
 

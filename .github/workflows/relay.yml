@@ -68,6 +68,10 @@ jobs:
           # The two planes share no credential: the admin token is useless on the client plane.
           test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $RELAY_ADMIN_TOKEN" localhost:8443/v1/devices)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer avt_not-a-real-token" localhost:8443/v1/admin/clients)" = 401
+          # MCP gateway: refused without a token (with a challenge pointing at the metadata), metadata is public, no GET stream.
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' localhost:8443/mcp -d '{}')" = 401
+          curl -si -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' localhost:8443/mcp -d '{}' | grep -qi '^www-authenticate: bearer.*resource_metadata='
+          curl -sf localhost:8443/.well-known/oauth-protected-resource/mcp
           # The audit log works against the real database.
           curl -sf -H "Authorization: Bearer $RELAY_ADMIN_TOKEN" 'localhost:8443/v1/admin/audit?limit=5'
       - name: Relay logs
