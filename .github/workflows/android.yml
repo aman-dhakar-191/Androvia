@@ -24,6 +24,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Version script test
+        working-directory: .
+        run: scripts/test-next-version.sh
       - name: Unit tests (core, capabilities)
         run: ./gradlew --no-daemon :core:test :capabilities:test
       - name: Lint and assemble debug APK
