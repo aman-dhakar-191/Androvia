@@ -123,6 +123,11 @@ type Store interface {
 	// A code can succeed at most once, even under concurrent attempts.
 	Redeem(ctx context.Context, codeHash [32]byte, label string, spki []byte, now time.Time) (Client, Credential, error)
 
+	// CreateOAuthClient creates a client with the given grants and NO credential: it is reached only through an OAuth
+	// authorization the owner approved (internal/oauth). All of it happens or none of it does. ErrNotFound if a granted
+	// device does not exist.
+	CreateOAuthClient(ctx context.Context, label string, grants []Grant, now time.Time) (Client, error)
+
 	GetClient(ctx context.Context, id string) (Client, error)
 	ListClients(ctx context.Context) ([]Client, error)
 	// RevokeClient revokes the client and all its credentials. Idempotent; ErrNotFound if unknown.
@@ -164,6 +169,25 @@ func NewMemoryStore(deviceExists func(string) bool) *MemoryStore {
 		clients: map[string]Client{}, creds: map[string]Credential{},
 		grants: map[string]map[string][]string{}, codes: map[[32]byte]*memCode{}, devices: deviceExists,
 	}
+}
+
+func (s *MemoryStore) CreateOAuthClient(_ context.Context, label string, grants []Grant, now time.Time) (Client, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.devices != nil {
+		for _, g := range grants {
+			if !s.devices(g.DeviceID) {
+				return Client{}, ErrNotFound
+			}
+		}
+	}
+	cl := Client{ID: protocol.NewID(), Label: label, Status: StatusActive, CreatedAt: now.UTC()}
+	s.clients[cl.ID] = cl
+	s.grants[cl.ID] = map[string][]string{}
+	for _, g := range grants {
+		s.grants[cl.ID][g.DeviceID] = append([]string(nil), g.Scopes...)
+	}
+	return cl, nil
 }
 
 func (s *MemoryStore) IssueCode(_ context.Context, c PairingCode) error {

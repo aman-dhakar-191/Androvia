@@ -15,7 +15,7 @@ engine, audit log and command routing. Design decisions: `docs/adr/0006-mcp-gate
 | Protocol revisions served | `2026-07-28` (stateless, `server/discover`), `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05` (as reported by the server's own `server/discover`) |
 | Tested with | the official **Go** SDK client (negotiates `2026-07-28`: all tool, grant, error and cancellation tests); the official **Python** SDK `mcp==2.3.0` client on `2025-11-25` (initialize handshake) and on `2026-07-28` (`discover`), in CI job `MCP interop`; and raw JSON-RPC against `2024-11-05`, `2025-03-26`, `2025-06-18` and `2025-11-25` (initialize, `tools/list`, `tools/call`) |
 | **Not tested** | Claude Desktop / Claude Code, ChatGPT, Cursor, MCP Inspector, the TypeScript SDK. They should work through `mcpbridge` (any host that starts a stdio server) or if they can send an `Authorization` header, but that is unverified |
-| Authorization | Androvia's own signed-challenge login (see below), **not OAuth** |
+| Authorization | the signed-challenge login (below), or, if `RELAY_OAUTH_ENABLED=true`, **OAuth 2.1** so a host can connect by URL (`docs/oauth.md`) |
 | Tools | two, both read-only (below) |
 | Resources, prompts, `listChanged` notifications | not provided |
 
@@ -66,7 +66,9 @@ host**; Windows file-permission checks are not implemented (the permission check
 **Tokens are short-lived** (10 minutes by default, at most 60 via `RELAY_TOKEN_TTL_MINUTES`) and there is no refresh
 token. A client that speaks HTTP directly must log in again before expiry; the bridge does that for you.
 
-### Why not OAuth
+### OAuth, optional
+By default there is no OAuth server and the protected-resource metadata names none. With `RELAY_OAUTH_ENABLED=true` the metadata names this relay as the authorization server and hosts can connect by URL; see `docs/oauth.md`. The reasoning below is why it is not the default.
+
 MCP makes authorization optional, and its OAuth profile (authorization code with a human consent screen, discovery, client
 registration) is designed for human-operated clients. Androvia clients are machines holding their own keys, and we do not
 run an OAuth authorization server. The relay publishes RFC 9728 protected-resource metadata at

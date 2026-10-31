@@ -79,9 +79,11 @@ type Deps struct {
 	MCPMetadata http.Handler
 	MCPPath     string
 	MCPMetaPath string
-	Log         *slog.Logger
-	Now         func() time.Time
-	Limits      Limits // zero value means DefaultLimits
+	// OAuth, if set, mounts the OAuth authorization server's endpoints (internal/oauth).
+	OAuth  interface{ Mount(*http.ServeMux) }
+	Log    *slog.Logger
+	Now    func() time.Time
+	Limits Limits // zero value means DefaultLimits
 }
 
 type Server struct {
@@ -117,6 +119,10 @@ func (s *Server) Handler(ws http.HandlerFunc) http.Handler {
 	if s.d.MCP != nil {
 		mux.Handle(s.d.MCPPath, s.d.MCP)
 		mux.Handle("GET "+s.d.MCPMetaPath, s.d.MCPMetadata)
+	}
+
+	if s.d.OAuth != nil {
+		s.d.OAuth.Mount(mux)
 	}
 
 	// Unauthenticated entry points (rate limited).
@@ -206,6 +212,10 @@ func (s *Server) client(next http.HandlerFunc) http.Handler {
 				return
 			}
 			s.authFailed(w, r, audit.ActorClient, "auth.rejected", string(auth.ReasonOf(err)))
+			return
+		}
+		if p.Audience != "" { // an OAuth token is bound to /mcp; it must not unlock the REST API
+			s.authFailed(w, r, audit.ActorClient, "auth.rejected", "wrong_audience")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))

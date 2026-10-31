@@ -24,7 +24,7 @@ ok()   { echo "  ok   - $*"; }
 die()  { echo "  FAIL - $*" >&2; echo "--- relay log:" >&2; tail -30 "$work/relay.log" >&2 || true; exit 1; }
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 
-RELAY_DATABASE_URL="$RELAY_DATABASE_URL" RELAY_ADMIN_TOKEN="$ADMIN" RELAY_PUBLIC_ORIGIN="$O" RELAY_ALLOW_INSECURE_HTTP=true \
+RELAY_DATABASE_URL="$RELAY_DATABASE_URL" RELAY_ADMIN_TOKEN="$ADMIN" RELAY_PUBLIC_ORIGIN="$O" RELAY_ALLOW_INSECURE_HTTP=true RELAY_OAUTH_ENABLED=true \
   RELAY_LISTEN_ADDR="127.0.0.1:$PORT" "$RELAY_BIN" >"$work/relay.log" 2>&1 & pids+=($!)
 for _ in $(seq 1 40); do curl -sf "$U/healthz" >/dev/null && break; sleep 0.5; done
 curl -sf "$U/healthz" >/dev/null || die "relay did not start"
@@ -48,6 +48,10 @@ echo "Python MCP SDK, initialize handshake (protocol 2025-11-25):"
 echo "Python MCP SDK, stateless discover (protocol 2026-07-28):"
 "$PY" "$ex/mcp_client.py" --discover "$U/mcp" "$TOKEN" "$DEV_device_id" | sed 's/^/    /' || die "python client (discover)"
 ok "both protocol revisions work end to end"
+
+echo "Python MCP SDK OAuth client (discovery, registration, PKCE, owner approval, refresh, replay):"
+"$PY" "$ex/mcp_oauth_client.py" "$U/mcp" "$ADMIN" "$DEV_device_id" | sed 's/^/    /' || die "python OAuth client"
+ok "a remote-host style OAuth connection works end to end"
 
 if [ -n "${BRIDGE_BIN:-}" ]; then
   echo "stdio bridge (mcpbridge), the client holds no token:"

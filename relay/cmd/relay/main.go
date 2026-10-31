@@ -20,6 +20,7 @@ import (
 	"github.com/aman-dhakar-191/androvia/relay/internal/connections"
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
 	"github.com/aman-dhakar-191/androvia/relay/internal/mcpgw"
+	"github.com/aman-dhakar-191/androvia/relay/internal/oauth"
 	"github.com/aman-dhakar-191/androvia/relay/internal/policy"
 	"github.com/aman-dhakar-191/androvia/relay/internal/router"
 	"github.com/aman-dhakar-191/androvia/relay/migrations"
@@ -73,12 +74,42 @@ func run(log *slog.Logger) error {
 		Devices: deviceStore, Clients: clientStore, Authz: policy.NewAuthorizer(clientStore), Audit: recorder, Disp: rt, Conns: mgr, Log: log,
 	})
 	authn := auth.New(clientStore, cfg.PublicOrigin, cfg.TokenTTL, nil)
-	gw := mcpgw.New(mcpgw.Config{Commands: cmds, Auth: authn, Audit: recorder, Log: log, PublicBase: cfg.PublicHTTPBase(), Version: version})
-	handler := api.New(api.Deps{
+	gwCfg := mcpgw.Config{Commands: cmds, Auth: authn, Audit: recorder, Log: log, PublicBase: cfg.PublicHTTPBase(), Version: version}
+	var oauthSrv *oauth.Server
+	if cfg.OAuthEnabled {
+		oauthStore := oauth.NewPostgresStore(pool)
+		oauthSrv, err = oauth.New(oauth.Config{
+			Issuer: cfg.PublicHTTPBase(), AdminToken: cfg.AdminToken, Devices: deviceStore, Clients: clientStore, Auth: authn,
+			Store: oauthStore, Audit: recorder, Log: log, AllowInsecure: cfg.AllowInsecure,
+		})
+		if err != nil {
+			return err
+		}
+		gwCfg.AuthorizationServers = []string{cfg.PublicHTTPBase()}
+		go func() {
+			for t := time.NewTicker(time.Hour); ; {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if _, err := oauthStore.PurgeExpired(ctx, time.Now()); err != nil {
+						log.Warn("oauth: purge expired tokens", "error", err.Error())
+					}
+				}
+			}
+		}()
+		log.Info("OAuth authorization server enabled", "issuer", cfg.PublicHTTPBase())
+	}
+	gw := mcpgw.New(gwCfg)
+	deps := api.Deps{
 		AdminToken: cfg.AdminToken, Devices: deviceStore, Clients: clientStore, Auth: authn,
 		Audit: recorder, AuditStore: auditStore, Conns: mgr, Commands: cmds, Log: log,
 		MCP: gw.Handler(), MCPMetadata: gw.MetadataHandler(), MCPPath: gw.EndpointPath(), MCPMetaPath: gw.MetadataPath(),
-	}).Handler(mgr.ServeWS)
+	}
+	if oauthSrv != nil {
+		deps.OAuth = oauthSrv
+	}
+	handler := api.New(deps).Handler(mgr.ServeWS)
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           handler,

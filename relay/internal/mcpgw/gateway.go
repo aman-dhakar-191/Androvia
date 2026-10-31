@@ -58,6 +58,9 @@ type Config struct {
 	// PublicBase is always allowed. Non-browser clients send no Origin and are unaffected.
 	AllowedOrigins []string
 	Version        string
+	// AuthorizationServers are advertised in the protected resource metadata (RFC 9728) so that hosts can discover where
+	// to sign in. Empty means no OAuth: only tokens from the signed-challenge login work.
+	AuthorizationServers []string
 }
 
 type Gateway struct {
@@ -83,11 +86,12 @@ func New(c Config) *Gateway {
 func (g *Gateway) EndpointPath() string { return endpointPath }
 func (g *Gateway) MetadataPath() string { return metadataPath }
 
-// MetadataHandler serves RFC 9728 protected resource metadata. We run no OAuth authorization server, so none is
-// advertised: tokens come from the relay's signed-challenge login (docs/relay.md), sent in the Authorization header.
+// MetadataHandler serves RFC 9728 protected resource metadata. authorization_servers is present only when the relay runs
+// its OAuth server (Config.AuthorizationServers); otherwise tokens come from the signed-challenge login (docs/relay.md).
 func (g *Gateway) MetadataHandler() http.Handler {
 	return sdkauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
 		Resource:               g.c.PublicBase + endpointPath,
+		AuthorizationServers:   g.c.AuthorizationServers,
 		BearerMethodsSupported: []string{"header"},
 		ResourceName:           "Androvia relay",
 		ResourceDocumentation:  "https://github.com/aman-dhakar-191/Androvia/blob/main/docs/mcp.md",
@@ -123,6 +127,11 @@ func (g *Gateway) Handler() http.Handler {
 					return nil, sdkauth.ErrInvalidToken
 				}
 				return nil, err // an internal failure is a 500, never a pass
+			}
+			// RFC 8707 / MCP: accept only tokens issued for this resource. Key-login tokens carry no audience.
+			if p.Audience != "" && p.Audience != g.c.PublicBase+endpointPath {
+				reason = "wrong_audience"
+				return nil, sdkauth.ErrInvalidToken
 			}
 			return &sdkauth.TokenInfo{UserID: p.ClientID, Expiration: p.Expires, Extra: map[string]any{"credential_id": p.CredentialID}}, nil
 		}
