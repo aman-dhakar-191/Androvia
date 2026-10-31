@@ -7,7 +7,7 @@ Androvia does not bypass Android's permission model, and it cannot promise unint
 
 ## Status
 
-Foundation stage. **Nothing has been run on a physical device.** Last verified state is below; "CI" means GitHub Actions
+Foundation stage. **Nothing has been run on a physical device.** Verified state (GitHub Actions run on commit `a203d99`: unit tests, lint, assemble, instrumentation on API 29 and 34 all green) is below; "CI" means GitHub Actions
 (`.github/workflows/android.yml`), because the Android SDK is not available in the author's dev sandbox.
 
 | Area | Status |
@@ -15,9 +15,9 @@ Foundation stage. **Nothing has been run on a physical device.** Last verified s
 | Phase 0 — design docs | Written (PR #1) |
 | `core` (envelope parser, dispatcher, policy, replay guard, backoff, registry) | Implemented. 49 JVM unit tests pass locally; also run in CI |
 | `capabilities` (`device.info`) | Implemented. 4 JVM unit tests pass locally |
-| `authentication` (Keystore EC P-256 identity, signing) | Written. Instrumentation tests written; **not yet run** |
-| `runtime` (Room, foreground service `specialUse`, DI) | Written. Instrumentation tests written for Room/policy/dispatch; **service lifecycle not tested** |
-| `app` (Compose status screen) | Written. **Not yet compiled** until CI runs |
+| `authentication` (Keystore EC P-256 identity, signing) | Implemented. Instrumentation tests pass in CI on API 29 and 34 **emulators** (not physical devices) |
+| `runtime` (Room, foreground service `specialUse`, DI) | Implemented. Room/policy/dispatch tests pass in CI on emulators; **service lifecycle (screen-off, locked, Doze, OEM) is untested** |
+| `app` (Compose status screen) | Compiles, lints and assembles in CI. UI not exercised by any automated test |
 | Relay, identity/authorization, MCP gateway, dashboard, SDKs | Not started |
 
 Phase 1 limitations: no relay connection, no remote command entry (commands run only via the in-app self-test),
