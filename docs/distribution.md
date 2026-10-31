@@ -26,14 +26,17 @@ Optional: `STORE_DISPATCH_TOKEN` (fine-grained token, `private-app-store` only, 
 store show a release immediately. Never commit the keystore or passwords (`*.jks` is git-ignored).
 
 ## Releasing
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```
-The Release workflow refuses to run without the four signing secrets, runs the JVM unit tests, builds the signed APK,
-and publishes the release.
+GitHub → **Actions → Release → Run workflow** (on `main`), then pick **patch**, **minor** or **major**.
+The workflow:
+1. finds the highest `vX.Y.Z` tag and bumps it (no tags yet: patch → `0.0.1`, minor → `0.1.0`, major → `1.0.0`);
+2. sets `versionName` to that version and `versionCode = major*1000000 + minor*1000 + patch` (always increases;
+   minor and patch must stay below 1000);
+3. runs the JVM unit tests, builds the signed APK, and publishes a GitHub release, which **creates the tag**.
+
+It refuses to run off `main` or without the four signing secrets. You never create tags by hand.
 
 ## Status
 Not yet exercised: no release has been made and the secrets are not configured, so the signed-release path
-(`release.yml`) is **untested**. CI only checks that an unsigned release build assembles.
+(`release.yml`) and the tag-creating release step are **untested**; only `scripts/test-next-version.sh` is covered. CI only checks that an unsigned release build assembles.
 Also note the first install requires allowing "install unknown apps" for the store, and a `specialUse` foreground
 service is fine for sideloaded distribution but would need a Play Console declaration for Google Play.
