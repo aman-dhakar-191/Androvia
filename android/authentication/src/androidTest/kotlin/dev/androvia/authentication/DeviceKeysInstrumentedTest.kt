@@ -37,13 +37,14 @@ class DeviceKeysInstrumentedTest {
         val data = "challenge".toByteArray()
         val sig = keys.sign(data)
         val pub = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(id.publicKeySpki))
-        fun verify(msg: ByteArray) = Signature.getInstance("SHA256withECDSA").run {
-            initVerify(pub)
-            update(msg)
-            verify(sig)
+        fun isValid(msg: ByteArray): Boolean {
+            val verifier = Signature.getInstance("SHA256withECDSA")
+            verifier.initVerify(pub)
+            verifier.update(msg)
+            return verifier.verify(sig)
         }
-        assertTrue(verify(data))
-        assertFalse(verify("challengf".toByteArray()))
+        assertTrue(isValid(data))
+        assertFalse(isValid("challengf".toByteArray()))
     }
 
     @Test fun differentAliasesGiveDifferentIdentities() {
