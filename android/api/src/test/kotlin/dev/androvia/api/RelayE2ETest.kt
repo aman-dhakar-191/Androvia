@@ -54,7 +54,7 @@ class RelayE2ETest {
     @AfterTest fun cleanup() {
         runBlocking { scope.coroutineContext[Job]?.children?.forEach { it.cancelAndJoin() } }
         clients.forEach { it.close() }
-        http.close()
+        // java.net.http.HttpClient has no close() before JDK 21 (CI uses 17); it is released by GC.
     }
 
     private fun requireRelay() = assumeTrue(baseUrl != null && token != null, "RELAY_E2E_URL / RELAY_E2E_ADMIN_TOKEN not set")
