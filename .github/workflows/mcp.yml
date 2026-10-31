@@ -40,13 +40,14 @@ jobs:
           python-version: '3.12'
       - name: Install the official Python MCP SDK
         run: pip install "mcp==2.3.0"
-      - name: Build the relay and the simulated phone
+      - name: Build the relay, the simulated phone and the stdio bridge
         working-directory: relay
         run: |
           go build -o "$RUNNER_TEMP/relay" ./cmd/relay
           go build -o "$RUNNER_TEMP/simdevice" ./cmd/simdevice
+          go build -o "$RUNNER_TEMP/mcpbridge" ./cmd/mcpbridge
       - name: Run the interop script
         env:
           RELAY_DATABASE_URL: postgres://relay:ci-only-password@localhost:5432/relay_interop?sslmode=disable
         run: |
-          RELAY_BIN="$RUNNER_TEMP/relay" SIM_BIN="$RUNNER_TEMP/simdevice" PYTHON=python scripts/mcp-interop.sh
+          RELAY_BIN="$RUNNER_TEMP/relay" SIM_BIN="$RUNNER_TEMP/simdevice" BRIDGE_BIN="$RUNNER_TEMP/mcpbridge" PYTHON=python scripts/mcp-interop.sh
