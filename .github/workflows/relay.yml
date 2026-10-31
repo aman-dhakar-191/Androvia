@@ -41,9 +41,12 @@ jobs:
       - name: Tests (race detector, real PostgreSQL)
         env:
           RELAY_TEST_DATABASE_URL: postgres://relay:ci-only-password@localhost:5432/relay_test?sslmode=disable
-        run: go test -race -count=1 -v ./... 2>&1 | tee /tmp/test.log | grep -E '^(--- FAIL|FAIL|ok|PASS)' ; test "${PIPESTATUS[0]}" = 0
-      - name: Postgres test must not have been skipped
-        run: grep -q -- '--- PASS: TestPostgresStore' /tmp/test.log
+        run: |
+          set -o pipefail
+          go test -race -count=1 -v ./... 2>&1 | tee /tmp/test.log
+      - name: PostgreSQL store test must have run, not been skipped
+        run: |
+          grep -q -e '--- PASS: TestPostgresStore' /tmp/test.log
 
   compose:
     name: Docker image and compose stack smoke test
