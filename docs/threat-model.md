@@ -36,6 +36,12 @@ device · someone with physical access to a locked device.
 | T11 | Backup extraction of local DB/state | Exclude app data from cloud backup and device transfer (`allowBackup=false`). *Phase 1.* |
 | T12 | Hostile or impersonated relay (e.g. a CA the user installed) | The relay can only trigger capabilities the user enabled on the device; every command passes the device dispatcher and local policy. The handshake signs the relay origin. **No certificate pinning (Phase 7)** and traffic is observable if TLS is intercepted. *Android client implemented; see ADR 0004.* |
 | T13 | Two instances of one device fight for the relay slot | Relay replaces the old connection (`4001`); the client treats that as terminal instead of reconnecting. *Implemented and tested end to end.* |
+| T14 | Stolen or leaked admin token | It cannot send commands; every use of it that changes state is audited; it is rate limited and never logged. It can still pair a new client and grant it access, so keep it secret and rotate it. *Phase 3.* |
+| T15 | Replayed or stolen login exchange | The nonce is single-use, expires in 60 s, is bound to one client id, and is consumed before any check, so even a valid recorded exchange fails. Signatures bind the relay origin. Tokens are short-lived and die with their client or credential. *Phase 3, tested.* |
+| T16 | Client reaches a device or capability it was not granted | Deny by default through one policy engine; scopes are per device and per capability with no wildcards; an ungranted device looks non-existent. The phone applies its own policy as well. *Phase 3, tested.* |
+| T17 | Pairing code guessed, intercepted or reused | 128-bit random, single-use under concurrency, 15-minute default life, stored hashed, identical error for every failure, rate limited. A code is a secret until redeemed: send it over a trusted channel. *Phase 3.* |
+| T18 | Audit log leaks secrets, or is down while privileged actions happen | Allow-listed fields, secret-shaped values refused, tests scan logs and the audit log for tokens/codes/keys. Issuing codes, granting and dispatching commands are refused when the audit write fails; revocation is never blocked. *Phase 3, tested.* |
+| T19 | Malicious or compromised administrator | **Not mitigated.** There is no second approver and no approval on the phone yet. Actions are audited only. |
 
 ## Out of scope for now
 Rooted/compromised OS, hardware attacks on the TEE, nation-state adversaries, relay hosting hardening (Phase 7).

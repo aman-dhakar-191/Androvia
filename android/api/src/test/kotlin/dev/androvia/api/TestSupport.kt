@@ -29,13 +29,16 @@ class TestDevice {
     val id: String = DeviceId.fromPublicKeyDer(spki)
     val publicKeyB64: String = Base64.getEncoder().encodeToString(spki)
 
+    /** ASN.1 DER ECDSA over SHA-256, like the Android Keystore key. */
+    fun signSync(data: ByteArray): ByteArray = Signature.getInstance("SHA256withECDSA").run {
+        initSign(keyPair.private)
+        update(data)
+        sign()
+    }
+
     val signer = object : RelaySigner {
         override suspend fun deviceId() = id
-        override suspend fun sign(data: ByteArray): ByteArray = Signature.getInstance("SHA256withECDSA").run {
-            initSign(keyPair.private)
-            update(data)
-            sign()
-        }
+        override suspend fun sign(data: ByteArray): ByteArray = signSync(data)
     }
 
     fun commandJson(capability: String = "device.info", version: Int = 1, args: JsonObject = JsonObject(emptyMap()), id: String = UUID.randomUUID().toString()): String {

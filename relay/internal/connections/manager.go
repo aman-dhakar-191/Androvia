@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aman-dhakar-191/androvia/relay/internal/audit"
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
 	"github.com/aman-dhakar-191/androvia/relay/internal/protocol"
 	"github.com/aman-dhakar-191/androvia/relay/internal/router"
@@ -33,6 +34,8 @@ type Config struct {
 	HeartbeatTimeout time.Duration
 	WriteTimeout     time.Duration
 	MaxViolations    int // protocol violations tolerated per connection before it is closed
+	// Audit, if set, records device connections and failed device logins.
+	Audit *audit.Recorder
 }
 
 // Handler receives traffic from authenticated devices. *router.Router implements it.
@@ -129,6 +132,13 @@ func (m *Manager) CloseAll() {
 	}
 }
 
+func (m *Manager) note(deviceID, action string, oc audit.Outcome, detail map[string]string) {
+	if m.cfg.Audit == nil {
+		return
+	}
+	m.cfg.Audit.Note(context.Background(), audit.Event{ActorType: audit.ActorDevice, ActorID: deviceID, DeviceID: deviceID, Action: action, Outcome: oc, Detail: detail})
+}
+
 // ServeWS is the HTTP handler for GET /v1/device/ws.
 func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	ws, err := websocket.Accept(w, r, nil) // default: browsers from other origins are rejected; devices send no Origin
@@ -145,6 +155,7 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 	c.deviceID = deviceID
 	m.register(c)
 	m.log.Info("device connected", "device", deviceID, "conn", c.id)
+	m.note(deviceID, "device.connect", audit.Info, nil)
 	_ = m.store.TouchLastSeen(context.Background(), deviceID, m.now())
 
 	m.readLoop(r.Context(), c)
@@ -209,6 +220,11 @@ func (m *Manager) handshake(parent context.Context, c *conn) (string, bool) {
 	}
 	if !known || serr != nil || !dev.Verify(protocol.AuthMessage(nonce, deviceID, m.cfg.PublicOrigin), sig) {
 		m.log.Warn("device authentication failed", "device", deviceID, "known", known)
+		reason := "bad_signature"
+		if !known {
+			reason = "unknown_or_revoked_device" // the audit log may say so; the device is only ever told "authentication failed"
+		}
+		m.note(deviceID, "device.auth_failed", audit.Denied, map[string]string{"reason": reason})
 		return fail(authFailedReason)
 	}
 	return deviceID, true

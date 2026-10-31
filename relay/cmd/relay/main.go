@@ -12,9 +12,13 @@ import (
 	"time"
 
 	"github.com/aman-dhakar-191/androvia/relay/internal/api"
+	"github.com/aman-dhakar-191/androvia/relay/internal/audit"
+	"github.com/aman-dhakar-191/androvia/relay/internal/auth"
+	"github.com/aman-dhakar-191/androvia/relay/internal/clients"
 	"github.com/aman-dhakar-191/androvia/relay/internal/config"
 	"github.com/aman-dhakar-191/androvia/relay/internal/connections"
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
+	"github.com/aman-dhakar-191/androvia/relay/internal/policy"
 	"github.com/aman-dhakar-191/androvia/relay/internal/router"
 	"github.com/aman-dhakar-191/androvia/relay/migrations"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,15 +52,27 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	store := devices.NewPostgresStore(pool)
+	deviceStore := devices.NewPostgresStore(pool)
+	clientStore := clients.NewPostgresStore(pool)
+	auditStore := audit.NewPostgresStore(pool)
+	recorder := audit.NewRecorder(auditStore, log, nil)
+	go audit.RunRetention(ctx, auditStore, time.Duration(cfg.AuditRetentionDays)*24*time.Hour, time.Hour, log, nil)
+
 	rt := router.New(log, nil)
 	mgr := connections.NewManager(connections.Config{
-		PublicOrigin: cfg.PublicOrigin, HandshakeTimeout: cfg.HandshakeTimeout, HeartbeatTimeout: cfg.HeartbeatTimeout,
-	}, store, rt, log, nil)
+		PublicOrigin: cfg.PublicOrigin, HandshakeTimeout: cfg.HandshakeTimeout, HeartbeatTimeout: cfg.HeartbeatTimeout, Audit: recorder,
+	}, deviceStore, rt, log, nil)
 	rt.Attach(mgr)
+
+	handler := api.New(api.Deps{
+		AdminToken: cfg.AdminToken, Devices: deviceStore, Clients: clientStore,
+		Auth:  auth.New(clientStore, cfg.PublicOrigin, cfg.TokenTTL, nil),
+		Authz: policy.NewAuthorizer(clientStore),
+		Audit: recorder, AuditStore: auditStore, Conns: mgr, Disp: rt, Log: log,
+	}).Handler(mgr.ServeWS)
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           api.New(cfg.AdminToken, store, mgr, rt, log, nil).Handler(mgr.ServeWS),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    16 * 1024,

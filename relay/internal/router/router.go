@@ -39,6 +39,8 @@ type Request struct {
 	Version    int
 	Args       json.RawMessage // JSON object; nil means {}
 	Timeout    time.Duration   // 0 means DefaultTimeout
+	// ID, if set, is used as the command's id so the caller can correlate audit records and responses with it.
+	ID string
 }
 
 // Response is the device's answer. Exactly one of Result or Err is set.
@@ -94,6 +96,9 @@ func (q *Request) Validate() error {
 			return errors.Join(ErrInvalidRequest, errors.New("args must be a JSON object"))
 		}
 	}
+	if q.ID != "" && !protocol.ValidID(q.ID) {
+		return errors.Join(ErrInvalidRequest, errors.New("bad request id"))
+	}
 	if q.Timeout < 0 || q.Timeout > MaxTimeout {
 		return errors.Join(ErrInvalidRequest, errors.New("timeout out of range"))
 	}
@@ -118,10 +123,14 @@ func (r *Router) Dispatch(ctx context.Context, deviceID string, q Request) (*Res
 		args = json.RawMessage(`{}`)
 	}
 	payload, _ := json.Marshal(protocol.CommandPayload{Capability: q.Capability, Version: q.Version, Args: args})
+	cmdID := q.ID
+	if cmdID == "" {
+		cmdID = protocol.NewID()
+	}
 	now := r.now().UTC()
 	exp := now.Add(timeout)
 	env := &protocol.Envelope{
-		V: protocol.Version, Type: protocol.TypeCommand, ID: protocol.NewID(), Device: deviceID,
+		V: protocol.Version, Type: protocol.TypeCommand, ID: cmdID, Device: deviceID,
 		TS: &now, Exp: &exp, Payload: payload,
 	}
 
