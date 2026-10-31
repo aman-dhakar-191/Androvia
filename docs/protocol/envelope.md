@@ -54,7 +54,7 @@ Stable error codes: `malformed`, `unsupported_version`, `unsupported_message`, `
 3. Device sends a signature (ECDSA P-256/SHA-256) over `nonce || device ID || relay origin`; relay verifies it
    against the stored public key and rejects unknown or revoked devices.
 4. Heartbeat every 25 s; relay drops a connection after 3 missed beats. Device reconnects with bounded exponential
-   backoff with jitter (base 1 s, cap 60 s, full jitter).
+   backoff with equal jitter (base 1 s, cap 60 s; delay is in [ceiling/2, ceiling], never 0).
 5. Short-lived session credential and renewal rules are decided in Phase 3.
 
 ## Cancellation and idempotency
