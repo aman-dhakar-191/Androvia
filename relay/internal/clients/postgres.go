@@ -95,6 +95,33 @@ func (s *PostgresStore) Redeem(ctx context.Context, h [32]byte, label string, sp
 	return cl, cr, nil
 }
 
+func (s *PostgresStore) CreateOAuthClient(ctx context.Context, label string, grants []Grant, now time.Time) (Client, error) {
+	now = now.UTC()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Client{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	cl := Client{ID: protocol.NewID(), Label: label, Status: StatusActive, CreatedAt: now}
+	if _, err := tx.Exec(ctx, `INSERT INTO clients (id, label, status, created_at) VALUES ($1::text::uuid, $2, 'active', $3)`, cl.ID, cl.Label, now); err != nil {
+		return Client{}, err
+	}
+	for _, g := range grants {
+		for _, sc := range g.Scopes {
+			if _, err := tx.Exec(ctx, `INSERT INTO grants (client_id, device_id, scope, created_at) VALUES ($1::text::uuid, $2, $3, $4)`, cl.ID, g.DeviceID, sc, now); err != nil {
+				if isPG(err, pgFKViolation) { // a granted device does not exist
+					return Client{}, ErrNotFound
+				}
+				return Client{}, err
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Client{}, err
+	}
+	return cl, nil
+}
+
 func scanClient(row pgx.Row) (Client, error) {
 	var c Client
 	var st string

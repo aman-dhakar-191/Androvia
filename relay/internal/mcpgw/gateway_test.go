@@ -24,6 +24,7 @@ import (
 	"github.com/aman-dhakar-191/androvia/relay/internal/connections"
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
 	"github.com/aman-dhakar-191/androvia/relay/internal/mcpgw"
+	"github.com/aman-dhakar-191/androvia/relay/internal/oauth"
 	"github.com/aman-dhakar-191/androvia/relay/internal/policy"
 	"github.com/aman-dhakar-191/androvia/relay/internal/protocol"
 	"github.com/aman-dhakar-191/androvia/relay/internal/router"
@@ -64,9 +65,18 @@ type env struct {
 	authn   *auth.Authenticator
 	clk     *skewClock
 	logs    *syncBuf
+	oauth   *oauth.MemoryStore // set when the environment runs the OAuth server
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return buildEnv(t, false, 0) }
+
+// newEnvOAuth is newEnv with the OAuth authorization server enabled (as RELAY_OAUTH_ENABLED=true would).
+func newEnvOAuth(t *testing.T) *env { return buildEnv(t, true, 100000) }
+
+// newEnvOAuthLimited keeps the real (low) per-address registration budget, for the test of the limit itself.
+func newEnvOAuthLimited(t *testing.T) *env { return buildEnv(t, true, 0) }
+
+func buildEnv(t *testing.T, withOAuth bool, oauthRate int) *env {
 	t.Helper()
 	logs := &syncBuf{}
 	log := slog.New(slog.NewTextHandler(logs, nil))
@@ -81,14 +91,27 @@ func newEnv(t *testing.T) *env {
 	rt.Attach(mgr)
 	authn := auth.New(cs, origin, 10*time.Minute, clk.now)
 	cmds := commands.New(commands.Deps{Devices: ds, Clients: cs, Authz: policy.NewAuthorizer(cs), Audit: rec, Disp: rt, Conns: mgr, Log: log, Now: clk.now})
-	gw := mcpgw.New(mcpgw.Config{Commands: cmds, Auth: authn, Audit: rec, Log: log, Now: clk.now, PublicBase: publicBase, Version: "test"})
-	srv := httptest.NewServer(api.New(api.Deps{
+	gwCfg := mcpgw.Config{Commands: cmds, Auth: authn, Audit: rec, Log: log, Now: clk.now, PublicBase: publicBase, Version: "test"}
+	deps := api.Deps{
 		AdminToken: adminToken, Devices: ds, Clients: cs, Auth: authn, Audit: rec, AuditStore: as, Conns: mgr, Commands: cmds, Log: log, Now: clk.now,
-		MCP: gw.Handler(), MCPMetadata: gw.MetadataHandler(), MCPPath: gw.EndpointPath(), MCPMetaPath: gw.MetadataPath(),
 		Limits: api.Limits{AuthPerMinute: 100000, RedeemPerMinute: 100000, FailuresPerMinute: 100000, ChallengePerClient: 100000},
-	}).Handler(mgr.ServeWS))
+	}
+	var os *oauth.MemoryStore
+	if withOAuth {
+		os = oauth.NewMemoryStore()
+		osrv, err := oauth.New(oauth.Config{Issuer: publicBase, AdminToken: adminToken, Devices: ds, Clients: cs, Auth: authn, Store: os, Audit: rec, Log: log, Now: clk.now,
+			RegisterPerMinute: oauthRate, TokenPerMinute: oauthRate, FailuresPerMinute: oauthRate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		gwCfg.AuthorizationServers = []string{publicBase}
+		deps.OAuth = osrv
+	}
+	gw := mcpgw.New(gwCfg)
+	deps.MCP, deps.MCPMetadata, deps.MCPPath, deps.MCPMetaPath = gw.Handler(), gw.MetadataHandler(), gw.EndpointPath(), gw.MetadataPath()
+	srv := httptest.NewServer(api.New(deps).Handler(mgr.ServeWS))
 	t.Cleanup(func() { mgr.CloseAll(); srv.Close() })
-	return &env{t, srv, ds, cs, as, authn, clk, logs}
+	return &env{t, srv, ds, cs, as, authn, clk, logs, os}
 }
 
 func (e *env) mcpURL() string { return e.srv.URL + "/mcp" }

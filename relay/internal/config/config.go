@@ -18,6 +18,8 @@ type Config struct {
 	TLSCertFile   string
 	TLSKeyFile    string
 	AllowInsecure bool // plain HTTP/WS; development only
+	// OAuthEnabled turns on the OAuth authorization server so remote MCP hosts can connect by URL (docs/oauth.md).
+	OAuthEnabled bool
 
 	TokenTTL           time.Duration // lifetime of client access tokens
 	AuditRetentionDays int
@@ -36,6 +38,7 @@ func Load(getenv func(string) string) (Config, error) {
 		TLSCertFile:      getenv("RELAY_TLS_CERT_FILE"),
 		TLSKeyFile:       getenv("RELAY_TLS_KEY_FILE"),
 		AllowInsecure:    getenv("RELAY_ALLOW_INSECURE_HTTP") == "true",
+		OAuthEnabled:     getenv("RELAY_OAUTH_ENABLED") == "true",
 		HandshakeTimeout: 10 * time.Second,
 		HeartbeatTimeout: 75 * time.Second,
 	}

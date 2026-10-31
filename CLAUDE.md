@@ -3,7 +3,7 @@
 Source of truth: `docs/ANDROVIA_SPEC.md`. Read it, and the ADRs in `docs/adr/`, before changing anything.
 
 Rules (from spec §12):
-- Work phase by phase. Phases 0-3 are done. Phase 4 (MCP gateway and the stdio bridge) is in progress; later phases (capabilities, dashboard, SDKs) need an explicit go-ahead.
+- Work phase by phase. Phases 0-3 are done. Phase 4 (MCP gateway, stdio bridge, OAuth for remote hosts) is in progress; later phases (capabilities, dashboard, SDKs) need an explicit go-ahead.
 - Never weaken authentication/authorization to make something work. Deny by default.
 - Never commit secrets, keystores or signing material. Use ignored local config or environment variables.
 - Every change needs tests, including denied/invalid/lifecycle cases for security-sensitive paths.

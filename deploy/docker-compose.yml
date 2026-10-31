@@ -30,6 +30,7 @@ services:
       RELAY_PUBLIC_ORIGIN: ws://localhost:8443
       RELAY_LISTEN_ADDR: :8443
       RELAY_ALLOW_INSECURE_HTTP: "true"
+      RELAY_OAUTH_ENABLED: ${RELAY_OAUTH_ENABLED:-false}  # true: remote MCP hosts can connect by URL (docs/oauth.md; needs a public HTTPS address)
     ports:
       - "127.0.0.1:8443:8443"
 

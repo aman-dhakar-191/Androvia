@@ -38,7 +38,7 @@ list results, new request headers.
 ## Not done, on purpose
 * **Device capability advertisement.** Needed to list only tools that are *enabled on the phone* (spec §9). Requires a
   device→relay message and Android UI/state. Until then a listed tool may answer `permission_denied` from the device.
-* **OAuth.** If an important MCP host cannot be configured with a custom header, this is the follow-up.
+* **OAuth.** Done afterwards, opt-in: see ADR 0007.
 
 ## Consequences
 * The 10-minute token is the main usability limit for agents that talk HTTP directly. `cmd/mcpbridge` (stdio⇄HTTP, holds the key,

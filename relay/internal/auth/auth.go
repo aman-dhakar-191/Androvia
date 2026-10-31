@@ -74,8 +74,11 @@ func ReasonOf(err error) Reason {
 
 type Principal struct {
 	ClientID     string
-	CredentialID string
-	Expires      time.Time // when the access token stops working
+	CredentialID string // empty for OAuth tokens, which have no key credential
+	// Audience is empty for tokens from the signed-challenge login (accepted by REST and MCP). A token issued through
+	// OAuth is bound to the one resource it was requested for (RFC 8707) and only that resource may accept it.
+	Audience string
+	Expires  time.Time // when the access token stops working
 }
 
 // Message is exactly what a client signs. nonce, clientID and credentialID have fixed lengths (32 bytes, 36 and 36
@@ -96,8 +99,8 @@ type challenge struct {
 }
 
 type tokenRec struct {
-	clientID, credentialID string
-	expires                time.Time
+	clientID, credentialID, audience string
+	expires                          time.Time
 }
 
 type Authenticator struct {
@@ -198,10 +201,26 @@ func (a *Authenticator) Exchange(ctx context.Context, clientID, credentialID, no
 	if !cred.Verify(Message(nb, clientID, credentialID, a.origin), sig) {
 		return "", time.Time{}, &Failure{ReasonBadSignature}
 	}
-	return a.issue(clientID, credentialID, now)
+	return a.issue(clientID, credentialID, "", now)
 }
 
-func (a *Authenticator) issue(clientID, credentialID string, now time.Time) (string, time.Time, error) {
+// IssueForResource issues an access token bound to audience for an OAuth-authorized client. The caller (internal/oauth)
+// has already authenticated the owner's approval; this only refuses clients that are unknown or revoked.
+func (a *Authenticator) IssueForResource(ctx context.Context, clientID, audience string) (string, time.Time, error) {
+	if audience == "" || !protocol.ValidID(clientID) {
+		return "", time.Time{}, ErrBadInput
+	}
+	cl, err := a.store.GetClient(ctx, clientID)
+	if errors.Is(err, clients.ErrNotFound) || (err == nil && cl.Status != clients.StatusActive) {
+		return "", time.Time{}, &Failure{ReasonClientInactive}
+	}
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return a.issue(clientID, "", audience, a.now())
+}
+
+func (a *Authenticator) issue(clientID, credentialID, audience string, now time.Time) (string, time.Time, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", time.Time{}, err
@@ -221,7 +240,7 @@ func (a *Authenticator) issue(clientID, credentialID string, now time.Time) (str
 		a.order[clientID] = a.order[clientID][1:]
 		delete(a.tokens, old)
 	}
-	a.tokens[h] = tokenRec{clientID: clientID, credentialID: credentialID, expires: exp}
+	a.tokens[h] = tokenRec{clientID: clientID, credentialID: credentialID, audience: audience, expires: exp}
 	a.order[clientID] = append(a.order[clientID], h)
 	return token, exp, nil
 }
@@ -263,15 +282,17 @@ func (a *Authenticator) Verify(ctx context.Context, bearer string) (Principal, e
 	if err != nil {
 		return Principal{}, err
 	}
-	cred, err := a.store.GetCredential(ctx, rec.credentialID)
-	if errors.Is(err, clients.ErrNotFound) || (err == nil && !cred.Usable(now)) {
-		a.RevokeCredential(rec.credentialID)
-		return Principal{}, &Failure{ReasonCredentialUnusable}
+	if rec.audience == "" { // key-login tokens are also bound to a still-usable credential; OAuth tokens have none
+		cred, err := a.store.GetCredential(ctx, rec.credentialID)
+		if errors.Is(err, clients.ErrNotFound) || (err == nil && !cred.Usable(now)) {
+			a.RevokeCredential(rec.credentialID)
+			return Principal{}, &Failure{ReasonCredentialUnusable}
+		}
+		if err != nil {
+			return Principal{}, err
+		}
 	}
-	if err != nil {
-		return Principal{}, err
-	}
-	return Principal{ClientID: rec.clientID, CredentialID: rec.credentialID, Expires: rec.expires}, nil
+	return Principal{ClientID: rec.clientID, CredentialID: rec.credentialID, Audience: rec.audience, Expires: rec.expires}, nil
 }
 
 // RevokeClient forgets every token of the client (call after revoking it in the store).

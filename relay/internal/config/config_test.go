@@ -118,3 +118,19 @@ func TestTokenAndRetentionSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestOAuthIsOptIn(t *testing.T) {
+	c, err := Load(env(valid()))
+	if err != nil || c.OAuthEnabled {
+		t.Fatalf("OAuth must be off unless asked for: %v %+v", err, c)
+	}
+	m := valid()
+	m["RELAY_OAUTH_ENABLED"] = "true"
+	if c, err := Load(env(m)); err != nil || !c.OAuthEnabled {
+		t.Fatalf("%v %+v", err, c)
+	}
+	m["RELAY_OAUTH_ENABLED"] = "yes" // only the exact word enables it
+	if c, _ := Load(env(m)); c.OAuthEnabled {
+		t.Fatal("a vague value enabled OAuth")
+	}
+}

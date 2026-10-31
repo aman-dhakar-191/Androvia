@@ -373,3 +373,76 @@ func TestChallengeLookupIsCaseSafeForIDs(t *testing.T) {
 		t.Fatalf("upper-case ids should be treated as the same ids: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// audience-bound (OAuth) tokens
+
+func TestAudienceBoundTokenNeedsNoCredentialButIsBoundToItsResource(t *testing.T) {
+	e := newEnv(t)
+	oc, err := e.store.CreateOAuthClient(ctx, "oauth: x", nil, e.clk.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, exp, err := e.a.IssueForResource(ctx, oc.ID, "https://relay.example.com/mcp")
+	if err != nil || !strings.HasPrefix(tok, auth.TokenPrefix) || !exp.After(e.clk.now()) {
+		t.Fatalf("%q %v %v", tok, exp, err)
+	}
+	p, err := e.a.Verify(ctx, tok)
+	if err != nil || p.ClientID != oc.ID || p.Audience != "https://relay.example.com/mcp" || p.CredentialID != "" {
+		t.Fatalf("%+v %v", p, err)
+	}
+	// a key-login token has no audience
+	n, _, _ := e.a.NewChallenge(e.client.ID)
+	nb, _ := base64.StdEncoding.DecodeString(n)
+	login, _, err := e.a.Exchange(ctx, e.client.ID, e.cred.ID, n, e.key.Sign(auth.Message(nb, e.client.ID, e.cred.ID, origin)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := e.a.Verify(ctx, login); p.Audience != "" {
+		t.Errorf("key-login token has audience %q", p.Audience)
+	}
+}
+
+func TestAudienceBoundTokenDiesWithItsClient(t *testing.T) {
+	e := newEnv(t)
+	oc, _ := e.store.CreateOAuthClient(ctx, "oauth: x", nil, e.clk.now())
+	tok, _, _ := e.a.IssueForResource(ctx, oc.ID, "https://relay.example.com/mcp")
+	if err := e.store.RevokeClient(ctx, oc.ID, e.clk.now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.a.Verify(ctx, tok); !errors.Is(err, auth.ErrUnauthorized) || auth.ReasonOf(err) != auth.ReasonClientInactive {
+		t.Fatalf("revoked client's OAuth token: %v", err)
+	}
+	if _, _, err := e.a.IssueForResource(ctx, oc.ID, "https://relay.example.com/mcp"); !errors.Is(err, auth.ErrUnauthorized) {
+		t.Fatalf("issued a token for a revoked client: %v", err)
+	}
+}
+
+func TestIssueForResourceRefusesBadInput(t *testing.T) {
+	e := newEnv(t)
+	oc, _ := e.store.CreateOAuthClient(ctx, "oauth: x", nil, e.clk.now())
+	if _, _, err := e.a.IssueForResource(ctx, oc.ID, ""); !errors.Is(err, auth.ErrBadInput) {
+		t.Errorf("empty audience: %v", err)
+	}
+	if _, _, err := e.a.IssueForResource(ctx, "not-a-uuid", "r"); !errors.Is(err, auth.ErrBadInput) {
+		t.Errorf("malformed client id: %v", err)
+	}
+	if _, _, err := e.a.IssueForResource(ctx, protocol.NewID(), "r"); !errors.Is(err, auth.ErrUnauthorized) {
+		t.Errorf("unknown client: %v", err)
+	}
+}
+
+func TestAudienceBoundTokenExpiresAndRevokeClientDropsIt(t *testing.T) {
+	e := newEnv(t)
+	oc, _ := e.store.CreateOAuthClient(ctx, "oauth: x", nil, e.clk.now())
+	tok, _, _ := e.a.IssueForResource(ctx, oc.ID, "r")
+	e.a.RevokeClient(oc.ID)
+	if _, err := e.a.Verify(ctx, tok); !errors.Is(err, auth.ErrUnauthorized) {
+		t.Errorf("RevokeClient left an OAuth token alive: %v", err)
+	}
+	tok, _, _ = e.a.IssueForResource(ctx, oc.ID, "r")
+	e.clk.advance(11 * time.Minute)
+	if _, err := e.a.Verify(ctx, tok); !errors.Is(err, auth.ErrUnauthorized) {
+		t.Errorf("expired OAuth token accepted: %v", err)
+	}
+}

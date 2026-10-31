@@ -129,6 +129,7 @@ Retention: `RELAY_AUDIT_RETENTION_DAYS` (default 90); expired events are purged 
 | `RELAY_TLS_CERT_FILE`, `RELAY_TLS_KEY_FILE` | one of TLS / dev flag | serve TLS directly |
 | `RELAY_ALLOW_INSECURE_HTTP` | no | `true` allows plain HTTP / `ws://` (development only) |
 | `RELAY_LISTEN_ADDR` | no | default `:8443` |
+| `RELAY_OAUTH_ENABLED` | no | `true` enables the OAuth authorization server for remote MCP hosts (`docs/oauth.md`); default off |
 | `RELAY_TOKEN_TTL_MINUTES` | no | client token lifetime, 1–60, default 10 |
 | `RELAY_AUDIT_RETENTION_DAYS` | no | 1–3650, default 90 |
 
