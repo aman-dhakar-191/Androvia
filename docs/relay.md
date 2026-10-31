@@ -1,7 +1,7 @@
 # Relay
 
-Go service in `relay/`: the device WebSocket endpoint, the HTTPS API, command routing, client identities and
-authorization, and the audit log (PostgreSQL). Wire format: `docs/protocol/envelope.md`. Design decisions:
+Go service in `relay/` (Go 1.25): the device WebSocket endpoint, the HTTPS API, the MCP gateway, command routing, client
+identities and authorization, and the audit log (PostgreSQL). Wire format: `docs/protocol/envelope.md`. Design decisions:
 `docs/adr/0005-identity-and-authorization.md`.
 
 ## Status
@@ -15,7 +15,7 @@ authorization, and the audit log (PostgreSQL). Wire format: `docs/protocol/envel
 | **Audit log in PostgreSQL with retention; privileged actions fail closed** | Implemented (Phase 3) |
 | Android WebSocket client | Implemented; tested against this relay on CI emulators; **never run on a physical phone** |
 | Docker image / Compose | Verified by CI only |
-| MCP gateway | **Not started** (Phase 4) |
+| **MCP gateway** (`/mcp`, official Go SDK, stateless) | Implemented (Phase 4); tested with Go and Python SDK clients; see `docs/mcp.md` |
 | Approving a pairing on the phone itself | **Not implemented.** Approval is the administrator issuing the code (see "Limits") |
 | Role bundles (e.g. "operator"), TLS certificate pinning, production hardening | Not implemented (Phase 7) |
 
@@ -88,6 +88,10 @@ exist (`404 device_not_found`); a device it can see but may not use for that act
 Command outcomes: `200 {"status":"ok","result"}`; `422` the device answered with an error (`source:"device"`, e.g.
 `permission_denied`); `400 invalid_request`; `403 forbidden`; `404 device_not_found`; `409 device_offline | device_revoked`;
 `502 device_disconnected`; `503 audit_unavailable`; `504 timeout`.
+
+### MCP
+`POST /mcp` (Streamable HTTP, bearer client token) and `GET /.well-known/oauth-protected-resource/mcp`. Two read-only tools.
+Everything about it is in `docs/mcp.md`.
 
 ### Admin plane (admin token)
 | Route | Purpose |

@@ -86,3 +86,15 @@ func or(v, def string) string {
 	}
 	return v
 }
+
+// PublicHTTPBase is the relay's public HTTP(S) base URL, derived from the public WebSocket origin
+// (wss://host -> https://host, ws://host -> http://host).
+func (c Config) PublicHTTPBase() string {
+	switch {
+	case strings.HasPrefix(c.PublicOrigin, "wss://"):
+		return "https://" + strings.TrimPrefix(c.PublicOrigin, "wss://")
+	case strings.HasPrefix(c.PublicOrigin, "ws://"):
+		return "http://" + strings.TrimPrefix(c.PublicOrigin, "ws://")
+	}
+	return c.PublicOrigin
+}

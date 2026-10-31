@@ -15,14 +15,19 @@ import (
 	"github.com/aman-dhakar-191/androvia/relay/internal/audit"
 	"github.com/aman-dhakar-191/androvia/relay/internal/auth"
 	"github.com/aman-dhakar-191/androvia/relay/internal/clients"
+	"github.com/aman-dhakar-191/androvia/relay/internal/commands"
 	"github.com/aman-dhakar-191/androvia/relay/internal/config"
 	"github.com/aman-dhakar-191/androvia/relay/internal/connections"
 	"github.com/aman-dhakar-191/androvia/relay/internal/devices"
+	"github.com/aman-dhakar-191/androvia/relay/internal/mcpgw"
 	"github.com/aman-dhakar-191/androvia/relay/internal/policy"
 	"github.com/aman-dhakar-191/androvia/relay/internal/router"
 	"github.com/aman-dhakar-191/androvia/relay/migrations"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// version is set at build time (-ldflags "-X main.version=...").
+var version = "dev"
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -64,11 +69,15 @@ func run(log *slog.Logger) error {
 	}, deviceStore, rt, log, nil)
 	rt.Attach(mgr)
 
+	cmds := commands.New(commands.Deps{
+		Devices: deviceStore, Clients: clientStore, Authz: policy.NewAuthorizer(clientStore), Audit: recorder, Disp: rt, Conns: mgr, Log: log,
+	})
+	authn := auth.New(clientStore, cfg.PublicOrigin, cfg.TokenTTL, nil)
+	gw := mcpgw.New(mcpgw.Config{Commands: cmds, Auth: authn, Audit: recorder, Log: log, PublicBase: cfg.PublicHTTPBase(), Version: version})
 	handler := api.New(api.Deps{
-		AdminToken: cfg.AdminToken, Devices: deviceStore, Clients: clientStore,
-		Auth:  auth.New(clientStore, cfg.PublicOrigin, cfg.TokenTTL, nil),
-		Authz: policy.NewAuthorizer(clientStore),
-		Audit: recorder, AuditStore: auditStore, Conns: mgr, Disp: rt, Log: log,
+		AdminToken: cfg.AdminToken, Devices: deviceStore, Clients: clientStore, Auth: authn,
+		Audit: recorder, AuditStore: auditStore, Conns: mgr, Commands: cmds, Log: log,
+		MCP: gw.Handler(), MCPMetadata: gw.MetadataHandler(), MCPPath: gw.EndpointPath(), MCPMetaPath: gw.MetadataPath(),
 	}).Handler(mgr.ServeWS)
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,

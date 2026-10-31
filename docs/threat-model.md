@@ -42,6 +42,11 @@ device · someone with physical access to a locked device.
 | T17 | Pairing code guessed, intercepted or reused | 128-bit random, single-use under concurrency, 15-minute default life, stored hashed, identical error for every failure, rate limited. A code is a secret until redeemed: send it over a trusted channel. *Phase 3.* |
 | T18 | Audit log leaks secrets, or is down while privileged actions happen | Allow-listed fields, secret-shaped values refused, tests scan logs and the audit log for tokens/codes/keys. Issuing codes, granting and dispatching commands are refused when the audit write fails; revocation is never blocked. *Phase 3, tested.* |
 | T19 | Malicious or compromised administrator | **Not mitigated.** There is no second approver and no approval on the phone yet. Actions are audited only. |
+| T20 | A tool is callable that the owner never intended (tool poisoning, "everything the device can do") | Hard-coded allowlist of two read-only tools; names outside it are rejected; adding a tool needs code, schema, scope and tests. *Phase 4, tested.* |
+| T21 | Identity or authority smuggled in through tool arguments (confused deputy) | Identity is read from the authenticated transport only; schemas forbid extra properties; the client's token is never passed on to the device or anyone else. *Phase 4, tested.* |
+| T22 | Browser-based DNS rebinding against `/mcp` | `Origin` is validated against the relay's own origin; no wildcard CORS on `/mcp`; every request needs a bearer token a browser page cannot obtain. *Phase 4, tested.* |
+| T23 | **Prompt injection through device-supplied text** returned to an agent | **Not mitigated.** Today's results are a model name and OS version. Results are structured data, but the agent decides how to treat them. Must be re-assessed before any capability returns user content. See `docs/mcp.md`. |
+| T24 | An agent over-reaches (tries every device and capability) | Scopes are per device and per capability; an ungranted device looks non-existent; every call is audited with `channel: mcp`; failed authentication is rate limited. The agent cannot widen its own grants. *Phase 4.* |
 
 ## Out of scope for now
 Rooted/compromised OS, hardware attacks on the TEE, nation-state adversaries, relay hosting hardening (Phase 7).

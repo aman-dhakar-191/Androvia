@@ -1,0 +1,52 @@
+name: MCP interop
+
+# The relay's MCP gateway (official Go MCP SDK) against the official PYTHON MCP SDK as the client, with a simulated phone
+# and a client paired using only curl and openssl. Three independent implementations must agree, on two protocol revisions
+# (2025-11-25 with the initialize handshake, and the stateless 2026-07-28).
+on:
+  push:
+    branches: [main]
+    paths: ['relay/**', 'deploy/examples/**', 'scripts/mcp-interop.sh', '.github/workflows/mcp.yml']
+  pull_request:
+    paths: ['relay/**', 'deploy/examples/**', 'scripts/mcp-interop.sh', '.github/workflows/mcp.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    name: Python MCP SDK against the relay
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: relay_interop
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U relay -d relay_interop"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: relay/go.mod
+          cache-dependency-path: relay/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the official Python MCP SDK
+        run: pip install "mcp==2.3.0"
+      - name: Build the relay and the simulated phone
+        working-directory: relay
+        run: |
+          go build -o "$RUNNER_TEMP/relay" ./cmd/relay
+          go build -o "$RUNNER_TEMP/simdevice" ./cmd/simdevice
+      - name: Run the interop script
+        env:
+          RELAY_DATABASE_URL: postgres://relay:ci-only-password@localhost:5432/relay_interop?sslmode=disable
+        run: |
+          RELAY_BIN="$RUNNER_TEMP/relay" SIM_BIN="$RUNNER_TEMP/simdevice" PYTHON=python scripts/mcp-interop.sh
