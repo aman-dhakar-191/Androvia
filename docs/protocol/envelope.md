@@ -47,7 +47,7 @@ Stable error codes: `malformed`, `unsupported_version`, `unsupported_message`, `
 `unknown_capability`, `capability_unavailable`, `permission_required`, `permission_denied`, `invalid_args`,
 `timeout`, `cancelled`, `rate_limited`, `internal`.
 
-## Handshake (implemented by the relay; the Android client is not built yet)
+## Handshake (implemented by the relay and by the Android client in `android/api`)
 
 1. Device opens WSS and sends `hello` (`{"versions":[1],"app_version":"…"}`, `device` = its id).
 2. Relay replies `hello_ack` (`{"nonce":"<base64, 32 random bytes>","version":1}`, `corr` = the hello id).
@@ -58,7 +58,12 @@ Stable error codes: `malformed`, `unsupported_version`, `unsupported_message`, `
 4. Device sends `heartbeat` every 25 s; the relay answers each one. The relay drops a device after 75 s of silence
    (close `4003`). Reconnect with bounded exponential backoff with equal jitter (base 1 s, cap 60 s; delay is in
    [ceiling/2, ceiling], never 0).
-5. Short-lived session credentials and renewal are decided in Phase 3.
+5. There is no explicit "authenticated" message. The device sends its first `heartbeat` right after `auth`; the relay's
+   heartbeat answer (`corr` = that heartbeat's id) confirms authentication. A failure is a close `1008`.
+6. Short-lived session credentials and renewal are decided in Phase 3.
+
+Device behaviour on close: `4001` (replaced) and `4002` (revoked) are terminal, the device stops and tells the user; every
+other close is retried with backoff. The device drops the connection if it hears nothing from the relay for 75 s.
 
 WebSocket close codes: `1008` auth/protocol failure, `1009` message too large, `4001` replaced by a newer connection,
 `4002` device revoked, `4003` heartbeat timeout.

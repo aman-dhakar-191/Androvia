@@ -18,12 +18,13 @@ Foundation stage. **Nothing has been run on a physical device.** Verified state 
 | `authentication` (Keystore EC P-256 identity, signing) | Implemented. Instrumentation tests pass in CI on API 29 and 34 **emulators** (not physical devices) |
 | `runtime` (Room, foreground service `specialUse`, DI) | Implemented. Room/policy/dispatch tests pass in CI on emulators; **service lifecycle (screen-off, locked, Doze, OEM) is untested** |
 | `app` (Compose status screen) | Compiles, lints and assembles in CI. UI not exercised by any automated test |
-| Relay (`relay/`: device WebSocket, registry, command routing, PostgreSQL, Docker Compose) | Implemented and tested in Go (race detector, real PostgreSQL). Docker image/Compose verified only by CI. **The Android app has no relay client yet.** See `docs/relay.md` |
+| Relay (`relay/`: device WebSocket, registry, command routing, PostgreSQL, Docker Compose) | Implemented and tested in Go (race detector, real PostgreSQL). Docker image/Compose verified only by CI. See `docs/relay.md` |
+| Android relay client (`android/api` + wiring in `runtime`/`app`: opt-in `wss://` connection while the runtime runs, handshake, heartbeat, reconnect, command routing to the local dispatcher) | Implemented. 14 JVM tests against a fake relay and 7 end-to-end tests against the real Go relay pass (CI job `Relay end-to-end`). The Android wiring compiles in CI; **never run on a physical device**. See ADR 0004 |
 | Release signing + `release.yml` + store listing | Configured; **untested** until signing secrets exist and a tag is pushed. See `docs/distribution.md` |
 | Pairing and per-client authorization (Phase 3), MCP gateway, dashboard, SDKs | Not started. The relay currently uses one bootstrap admin token |
 
-Phase 1 limitations: no relay connection, no remote command entry (commands run only via the in-app self-test),
-no reboot auto-start, no foreground-service restart after the process dies. See `docs/testing/physical-device-checklist.md`.
+Limitations: the relay connection is opt-in and exists only while the runtime runs; no reboot auto-start; no
+foreground-service restart after the process dies; no certificate pinning; one coarse admin token on the relay (Phase 3). See `docs/testing/physical-device-checklist.md`.
 
 ## Build and test
 
@@ -45,3 +46,4 @@ cd android
 - [Physical-device checklist](docs/testing/physical-device-checklist.md)
 - [Distribution via the private app store](docs/distribution.md)
 - [Relay](docs/relay.md)
+- [ADR 0004 — Android relay client](docs/adr/0004-android-relay-client.md)

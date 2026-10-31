@@ -38,6 +38,15 @@ func TestLoadTrimsTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestLoadLowercasesOrigin(t *testing.T) {
+	m := valid()
+	m["RELAY_PUBLIC_ORIGIN"] = " WSS://Relay.Example.COM:8443/ "
+	c, err := Load(env(m))
+	if err != nil || c.PublicOrigin != "wss://relay.example.com:8443" {
+		t.Fatalf("%v %q", err, c.PublicOrigin)
+	}
+}
+
 func TestLoadRejects(t *testing.T) {
 	cases := map[string]func(map[string]string){
 		"no database":           func(m map[string]string) { delete(m, "RELAY_DATABASE_URL") },

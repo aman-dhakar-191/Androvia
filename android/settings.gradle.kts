@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "androvia-android"
-include(":core", ":capabilities", ":authentication", ":runtime", ":app")
+include(":core", ":capabilities", ":api", ":authentication", ":runtime", ":app")

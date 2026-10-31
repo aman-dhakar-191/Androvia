@@ -27,8 +27,8 @@ jobs:
       - name: Version script test
         working-directory: .
         run: scripts/test-next-version.sh
-      - name: Unit tests (core, capabilities)
-        run: ./gradlew --no-daemon :core:test :capabilities:test
+      - name: Unit tests (core, capabilities, relay client against a fake relay)
+        run: ./gradlew --no-daemon :core:test :capabilities:test :api:test
       - name: Lint and assemble debug APK
         run: ./gradlew --no-daemon lintDebug assembleDebug
       - name: Assemble release (unsigned; checks the release config builds)

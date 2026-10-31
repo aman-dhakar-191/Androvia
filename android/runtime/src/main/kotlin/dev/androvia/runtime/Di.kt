@@ -28,11 +28,15 @@ annotation class AppScope
 object RuntimeModule {
     @Provides @Singleton
     fun database(@ApplicationContext context: Context): AndroviaDatabase =
-        Room.databaseBuilder(context, AndroviaDatabase::class.java, "androvia.db").build()
+        Room.databaseBuilder(context, AndroviaDatabase::class.java, "androvia.db")
+            .addMigrations(*RuntimeMigrations.ALL) // never fall back to destructive migration: it would wipe capability choices
+            .build()
 
     @Provides fun runtimeStateDao(db: AndroviaDatabase): RuntimeStateDao = db.runtimeStateDao()
 
     @Provides fun capabilityConfigDao(db: AndroviaDatabase): CapabilityConfigDao = db.capabilityConfigDao()
+
+    @Provides fun relayConfigDao(db: AndroviaDatabase): RelayConfigDao = db.relayConfigDao()
 
     @Provides @Singleton fun clock(): Clock = Clock.systemUTC()
 

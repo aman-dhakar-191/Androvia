@@ -33,6 +33,9 @@ enum class ErrorCode(val wire: String) {
 enum class MessageType(val wire: String) {
     HELLO("hello"),
     HELLO_ACK("hello_ack"),
+
+    /** Device -> relay only: completes the handshake with a signature. */
+    AUTH("auth"),
     HEARTBEAT("heartbeat"),
     COMMAND("command"),
     RESULT("result"),
