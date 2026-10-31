@@ -1,0 +1,24 @@
+# Build output
+build/
+.gradle/
+*.apk
+*.aab
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+
+# Local configuration and secrets — commit safe placeholders only
+local.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+.env.*
+!.env.example
+secrets/
+
+# Go / Node (future)
+node_modules/
